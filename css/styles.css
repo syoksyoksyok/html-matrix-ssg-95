@@ -107,6 +107,11 @@ h2 {
   overflow: visible;
   min-width: 200px;
   min-height: 150px;
+  max-width: 2000px;
+}
+
+.layout-container.free-layout .panel-group.draggable {
+  max-width: none;
 }
 
 .panel-group.dragging {
