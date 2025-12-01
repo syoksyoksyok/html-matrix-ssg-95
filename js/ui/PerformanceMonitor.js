@@ -162,6 +162,12 @@ export class PerformanceMonitor {
     if (!this.isVisible) return;
 
     try {
+      // Validate DOM elements before updating
+      if (!this.elements.cpuUsage || !this.elements.cpuBar || !this.elements.fpsCounter) {
+        Logger.warn('Performance monitor DOM elements missing, skipping update');
+        return;
+      }
+
       // Calculate CPU usage based on FPS
       const baseCpuUsage = Math.max(0, Math.min(100, 100 - this.fps * FPS_TO_CPU_FACTOR));
       this.cpuUsage = baseCpuUsage + Math.random() * RANDOM_CPU_VARIANCE;

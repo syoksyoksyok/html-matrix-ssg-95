@@ -10,6 +10,7 @@ const DEFAULT_STROKE_STYLE = '#0f0';
 const DEFAULT_LINE_WIDTH = 1;
 const PLAYHEAD_COLOR = 'red';
 const PLAYHEAD_LINE_WIDTH = 2;
+const MAX_CACHE_SIZE = 1024 * 1024; // 1MB limit for cache
 
 /**
  * OptimizedWaveformRenderer class
@@ -109,12 +110,20 @@ export class OptimizedWaveformRenderer {
 
       this.offscreenCtx.stroke();
 
-      // Cache the rendered waveform
-      this.cachedWaveform = this.offscreenCtx.getImageData(0, 0, width, height);
-      this.lastBuffer = buffer;
-
-      // Draw cached waveform to main canvas
-      this.ctx.putImageData(this.cachedWaveform, 0, 0);
+      // Cache the rendered waveform with size limit
+      const imageDataSize = width * height * 4; // 4 bytes per pixel (RGBA)
+      if (imageDataSize > MAX_CACHE_SIZE) {
+        Logger.warn(`Waveform cache exceeds max size (${imageDataSize} > ${MAX_CACHE_SIZE}), caching disabled`);
+        this.cachedWaveform = null;
+        this.lastBuffer = null;
+        // Draw directly to main canvas
+        this.ctx.drawImage(this.offscreenCanvas, 0, 0);
+      } else {
+        this.cachedWaveform = this.offscreenCtx.getImageData(0, 0, width, height);
+        this.lastBuffer = buffer;
+        // Draw cached waveform to main canvas
+        this.ctx.putImageData(this.cachedWaveform, 0, 0);
+      }
     } catch (error) {
       Logger.error('Failed to draw waveform:', error);
     }

@@ -34,6 +34,9 @@ const CONSTANTS = {
     LAYOUT_OVERLAP_BUFFER: 15,
     LAYOUT_MIN_PANEL_WIDTH: 200,
     LAYOUT_MIN_PANEL_HEIGHT: 150,
+    LAYOUT_MAX_WIDTH: 1000,
+    LAYOUT_MAX_HEIGHT: 1000,
+    LAYOUT_FALLBACK_OFFSET: 50,
     LAYOUT_DEFAULT_WIDTH: 300,
     LAYOUT_CTRL_SECTION_WIDTH: 900,
     LAYOUT_MAIN_SECTION_WIDTH: 580,
@@ -60,7 +63,9 @@ const CONSTANTS = {
     // Audio Constants
     MAX_VOICE_COUNT: 128,
     DEFAULT_BPM: 120,
-    
+    MAX_GRAINS_PER_STEP: 20,
+    POSITION_RANDOM_OFFSET: 0.05,
+
     // File Loading
     CONCURRENT_FILE_LOAD_LIMIT: 4,
 };
@@ -441,22 +446,27 @@ export class OptimizedMultigrainPlayer {
 
         _startLEDMeterLoop() {
             if (this.ledMeterState.isRunning) return;
-            
+
             this.ledMeterState.isRunning = true;
-            
+
             const updateLEDMeters = () => {
                 if (!this.ledMeterState.isRunning) return;
-                
+
                 if (this.state.isPlaying && this.grainVoiceManager.getActiveVoiceCount() > 0) {
                     this._updateTrueLRLEDDisplay();
                 } else {
                     this._fadeLEDDisplay();
                 }
-                
+
                 this.resourceManager.requestAnimationFrame(updateLEDMeters);
             };
-            
+
             updateLEDMeters();
+        }
+
+        _stopLEDMeterLoop() {
+            this.ledMeterState.isRunning = false;
+            Logger.debug('LED meter loop stopped');
         }
 
         _updateTrueLRLEDDisplay() {
@@ -1016,11 +1026,11 @@ export class OptimizedMultigrainPlayer {
 
                     // Remove global event listeners after drag
                     if (mouseMoveHandler) {
-                        document.removeEventListener('mousemove', mouseMoveHandler);
-                        document.removeEventListener('mouseup', mouseUpHandler);
-                        document.removeEventListener('touchmove', touchMoveHandler);
-                        document.removeEventListener('touchend', touchEndHandler);
-                        document.removeEventListener('touchcancel', touchCancelHandler);
+                        this.resourceManager.removeEventListener(document, 'mousemove', mouseMoveHandler);
+                        this.resourceManager.removeEventListener(document, 'mouseup', mouseUpHandler);
+                        this.resourceManager.removeEventListener(document, 'touchmove', touchMoveHandler);
+                        this.resourceManager.removeEventListener(document, 'touchend', touchEndHandler);
+                        this.resourceManager.removeEventListener(document, 'touchcancel', touchCancelHandler);
                         mouseMoveHandler = null;
                         mouseUpHandler = null;
                         touchMoveHandler = null;
@@ -1561,7 +1571,7 @@ export class OptimizedMultigrainPlayer {
             this.state.autoScalingActive = false;
             
             if (this._resizeListener) {
-                window.removeEventListener('resize', this._resizeListener);
+                this.resourceManager.removeEventListener(window, 'resize', this._resizeListener);
                 this._resizeListener = null;
             }
             
@@ -2401,7 +2411,10 @@ export class OptimizedMultigrainPlayer {
         startGranularPlayback() {
             try {
                 if (this.state.isPlaying) {
-                    clearInterval(this.state.sequencerIntervalId);
+                    if (this.state.sequencerIntervalId !== null) {
+                        this.resourceManager.clearInterval(this.state.sequencerIntervalId);
+                        this.state.sequencerIntervalId = null;
+                    }
                 } else {
                     this.state.isPlaying = true;
                     this.state.lfoStartTime = this.audioContext.currentTime;
@@ -2413,7 +2426,7 @@ export class OptimizedMultigrainPlayer {
                 }
 
                 const stepIntervalMs = (60 / this.state.tempoBpm) * 1000 / this.config.GRANULAR_INTERVAL_DIVISOR;
-                this.state.sequencerIntervalId = setInterval(() => this._sequencerTick(), stepIntervalMs);
+                this.state.sequencerIntervalId = this.resourceManager.setInterval(() => this._sequencerTick(), stepIntervalMs);
             } catch (error) {
                 Logger.error('Failed to start granular playback:', error);
                 this.state.isPlaying = false;
@@ -2424,7 +2437,10 @@ export class OptimizedMultigrainPlayer {
             try {
                 if (!this.state.isPlaying) return;
                 this.state.isPlaying = false;
-                clearInterval(this.state.sequencerIntervalId);
+                if (this.state.sequencerIntervalId !== null) {
+                    this.resourceManager.clearInterval(this.state.sequencerIntervalId);
+                    this.state.sequencerIntervalId = null;
+                }
                 this._updateStepUI();
 
                 this.grainVoiceManager.stopAll();
@@ -2858,10 +2874,28 @@ export class OptimizedMultigrainPlayer {
 
         async _processAndLoadFile(fileHandle, slotIndex) {
             try {
+                // Check AudioContext state
+                if (this.audioContext.state === 'closed') {
+                    throw new Error('AudioContext is closed');
+                }
+
+                // Resume if suspended
+                if (this.audioContext.state === 'suspended') {
+                    await this.audioContext.resume();
+                }
+
                 const file = await fileHandle.getFile();
+                if (!file) {
+                    throw new Error('Failed to get file');
+                }
+
                 const arrayBuffer = await file.arrayBuffer();
+                if (!arrayBuffer) {
+                    throw new Error('Failed to read file');
+                }
+
                 const decodedData = await this.audioContext.decodeAudioData(arrayBuffer);
-                
+
                 const rawData = decodedData.getChannelData(0);
                 const sampleRate = decodedData.sampleRate;
                 const threshold = 0.01;
@@ -2887,7 +2921,16 @@ export class OptimizedMultigrainPlayer {
                 document.getElementById(`fileName-slot${slotIndex}`).textContent = file.name;
             } catch (error) {
                 Logger.error(`Error processing ${fileHandle.name}:`, error);
-                document.getElementById(`fileName-slot${slotIndex}`).textContent = 'Error!';
+
+                // Cleanup on error
+                if (this.state.audioBuffers[slotIndex]) {
+                    this.state.audioBuffers[slotIndex] = null;
+                }
+
+                const fileNameElement = document.getElementById(`fileName-slot${slotIndex}`);
+                if (fileNameElement) {
+                    fileNameElement.textContent = 'Error!';
+                }
             }
         }
 
@@ -3027,9 +3070,7 @@ export class OptimizedMultigrainPlayer {
                 this._stopAutoScaling();
 
                 // Stop LED meter loop
-                if (this.ledMeterState) {
-                    this.ledMeterState.isRunning = false;
-                }
+                this._stopLEDMeterLoop();
 
                 // Clean up audio resources
                 if (this.grainVoiceManager) {

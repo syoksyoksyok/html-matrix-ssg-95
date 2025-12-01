@@ -23,6 +23,20 @@ export class ResourceManager {
   }
 
   /**
+   * Remove a specific event listener
+   */
+  removeEventListener(element, event, handler, options) {
+    try {
+      element.removeEventListener(event, handler, options);
+      this.eventListeners = this.eventListeners.filter(
+        listener => !(listener.element === element && listener.event === event && listener.handler === handler)
+      );
+    } catch (error) {
+      console.error('Failed to remove event listener:', error);
+    }
+  }
+
+  /**
    * Set a timeout and track it for cleanup
    */
   setTimeout(callback, delay) {
