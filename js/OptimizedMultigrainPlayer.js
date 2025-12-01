@@ -1,10 +1,10 @@
 // Import dependencies
-import { ResourceManager } from './ResourceManager.js';
-import { Logger } from './Logger.js';
-import { WinAMPSpectrumAnalyzer } from './WinAMPSpectrumAnalyzer.js';
-import { OptimizedGrainVoiceManager } from './OptimizedGrainVoiceManager.js';
-import { PerformanceMonitor } from './PerformanceMonitor.js';
-import { OptimizedWaveformRenderer } from './OptimizedWaveformRenderer.js';
+import { ResourceManager } from './utils/resourceManager.js';
+import { Logger } from './utils/logger.js';
+import { WinAMPSpectrumAnalyzer } from './audio/WinAMPSpectrumAnalyzer.js';
+import { OptimizedGrainVoiceManager } from './audio/OptimizedGrainVoiceManager.js';
+import { PerformanceMonitor } from './ui/PerformanceMonitor.js';
+import { OptimizedWaveformRenderer } from './ui/OptimizedWaveformRenderer.js';
 
 // Constants
 const CONSTANTS = {
@@ -958,11 +958,35 @@ export class OptimizedMultigrainPlayer {
             const baseRange = CONSTANTS.KNOB_BASE_RANGE;
             const normalizedSensitivity = baseSensitivity * (valueRange / baseRange);
 
+            // Event handlers stored for cleanup
+            let mouseMoveHandler = null;
+            let mouseUpHandler = null;
+            let touchMoveHandler = null;
+            let touchEndHandler = null;
+            let touchCancelHandler = null;
+
             const onDragStart = (clientY) => {
                 this.state.knobDragStates[elementId].isDragging = true;
                 knobElement.style.cursor = 'ns-resize';
                 this.state.knobDragStates[elementId].startY = clientY;
                 this.state.knobDragStates[elementId].startValue = this.state.knobDragStates[elementId].currentValue;
+
+                // Add global event listeners only during drag
+                mouseMoveHandler = (e) => onDragMove(e.clientY);
+                mouseUpHandler = () => onDragEnd();
+                touchMoveHandler = (e) => {
+                    onDragMove(e.touches[0].clientY);
+                    e.preventDefault();
+                };
+                touchEndHandler = () => onDragEnd();
+                touchCancelHandler = () => onDragEnd();
+
+                this.resourceManager.addEventListener(document, 'mousemove', mouseMoveHandler);
+                this.resourceManager.addEventListener(document, 'mouseup', mouseUpHandler);
+                this.resourceManager.addEventListener(document, 'touchmove', touchMoveHandler, { passive: false });
+                this.resourceManager.addEventListener(document, 'touchend', touchEndHandler);
+                this.resourceManager.addEventListener(document, 'touchcancel', touchCancelHandler);
+
                 return true;
             };
 
@@ -972,13 +996,13 @@ export class OptimizedMultigrainPlayer {
 
                 const deltaY = dragState.startY - clientY;
                 let newValue = dragState.startValue + (deltaY * normalizedSensitivity);
-                
+
                 newValue = Math.max(spec.min, Math.min(spec.max, newValue));
-                
+
                 if (spec.step) {
                     newValue = Math.round(newValue / spec.step) * spec.step;
                 }
-                
+
                 dragState.currentValue = newValue;
                 this._updateKnobDisplay(elementId, spec, newValue);
             };
@@ -989,6 +1013,20 @@ export class OptimizedMultigrainPlayer {
                     dragState.isDragging = false;
                     knobElement.style.cursor = 'grab';
                     this.saveCurrentState();
+
+                    // Remove global event listeners after drag
+                    if (mouseMoveHandler) {
+                        document.removeEventListener('mousemove', mouseMoveHandler);
+                        document.removeEventListener('mouseup', mouseUpHandler);
+                        document.removeEventListener('touchmove', touchMoveHandler);
+                        document.removeEventListener('touchend', touchEndHandler);
+                        document.removeEventListener('touchcancel', touchCancelHandler);
+                        mouseMoveHandler = null;
+                        mouseUpHandler = null;
+                        touchMoveHandler = null;
+                        touchEndHandler = null;
+                        touchCancelHandler = null;
+                    }
                 }
             };
 
@@ -1022,9 +1060,6 @@ export class OptimizedMultigrainPlayer {
             });
             
             knobElement.addEventListener('contextmenu', onRightClick);
-            
-            document.addEventListener('mousemove', e => onDragMove(e.clientY));
-            document.addEventListener('mouseup', () => onDragEnd());
 
             knobElement.addEventListener('dblclick', e => {
                 e.preventDefault();
@@ -1034,26 +1069,18 @@ export class OptimizedMultigrainPlayer {
             knobElement.addEventListener('touchstart', e => {
                 const currentTime = Date.now();
                 const dragState = this.state.knobDragStates[elementId];
-                
+
                 if (currentTime - dragState.lastTapTime < CONSTANTS.DOUBLE_TAP_THRESHOLD_MS) {
                     e.preventDefault();
                     onDoubleAction();
                     dragState.lastTapTime = 0;
                     return;
                 }
-                
-                dragState.lastTapTime = currentTime;
-                onDragStart(e.touches[0].clientY); 
-                e.preventDefault(); 
-            }, { passive: false });
 
-            document.addEventListener('touchmove', e => { 
-                onDragMove(e.touches[0].clientY); 
-                e.preventDefault(); 
+                dragState.lastTapTime = currentTime;
+                onDragStart(e.touches[0].clientY);
+                e.preventDefault();
             }, { passive: false });
-            
-            document.addEventListener('touchend', () => onDragEnd());
-            document.addEventListener('touchcancel', () => onDragEnd());
             
             if (this._isKnobLocked(elementId)) {
                 knobElement.classList.add('locked');
@@ -1687,13 +1714,13 @@ export class OptimizedMultigrainPlayer {
         }
 
         _setupSectionDragging() {
-            document.addEventListener('mousedown', (e) => this._handleDragResizeStart(e));
-            document.addEventListener('mousemove', (e) => this._handleDragResizeMove(e));
-            document.addEventListener('mouseup', (e) => this._handleDragResizeEnd(e));
-            
-            document.addEventListener('touchstart', (e) => this._handleDragResizeStart(e), {passive: false});
-            document.addEventListener('touchmove', (e) => this._handleDragResizeMove(e), {passive: false});
-            document.addEventListener('touchend', (e) => this._handleDragResizeEnd(e));
+            this.resourceManager.addEventListener(document, 'mousedown', (e) => this._handleDragResizeStart(e));
+            this.resourceManager.addEventListener(document, 'mousemove', (e) => this._handleDragResizeMove(e));
+            this.resourceManager.addEventListener(document, 'mouseup', (e) => this._handleDragResizeEnd(e));
+
+            this.resourceManager.addEventListener(document, 'touchstart', (e) => this._handleDragResizeStart(e), {passive: false});
+            this.resourceManager.addEventListener(document, 'touchmove', (e) => this._handleDragResizeMove(e), {passive: false});
+            this.resourceManager.addEventListener(document, 'touchend', (e) => this._handleDragResizeEnd(e));
         }
 
         _handleDragResizeStart(e) {
@@ -1883,7 +1910,7 @@ export class OptimizedMultigrainPlayer {
         }
 
         _bindKeyboardShortcuts() {
-            document.addEventListener('keydown', (e) => {
+            this.resourceManager.addEventListener(document, 'keydown', (e) => {
                 const activeElement = document.activeElement;
                 if (activeElement && (
                     activeElement.tagName === 'INPUT' || 
@@ -2032,7 +2059,7 @@ export class OptimizedMultigrainPlayer {
                 }
             });
 
-            document.addEventListener('keyup', (e) => {
+            this.resourceManager.addEventListener(document, 'keyup', (e) => {
                 if (e.code === 'KeyM') {
                     this.state.isMKeyPressed = false;
                 }
@@ -3023,7 +3050,7 @@ export class OptimizedMultigrainPlayer {
 
                 // Clean up all managed resources (event listeners, timers)
                 if (this.resourceManager) {
-                    this.resourceManager.cleanup();
+                    this.resourceManager.destroy();
                 }
 
                 Logger.log('OptimizedMultigrainPlayer destroyed successfully');
