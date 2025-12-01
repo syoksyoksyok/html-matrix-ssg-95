@@ -2923,6 +2923,12 @@
                 
                 dragState.currentValue = newValue;
                 this._updateKnobDisplay(elementId, spec, newValue);
+
+                // Real-time sequencer update for SEQ PROB knob
+                if (elementId === 'randomDensity') {
+                    console.log(`SEQ PROB knob dragged to: ${newValue}`);
+                    this.randomizeSequencer();
+                }
             };
 
             const onDragEnd = () => {
