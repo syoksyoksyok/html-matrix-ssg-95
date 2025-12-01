@@ -2124,16 +2124,29 @@
             this._updateRandomDensityKnob(this.config.RANDOM_DENSITY_SPEC.value);
             this._updateAllSlotControlButtons();
             this.saveCurrentState();
-            
+
             setTimeout(() => {
                 this._updateSequencerSelection();
             }, 100);
-            
+
             this.startPerformanceTracking();
-            
+
             window.addEventListener('beforeunload', () => {
                 this._stopAutoScaling();
             });
+
+            // Initialize FREE LAYOUT mode if enabled
+            if (this.state.isFreeLayoutMode) {
+                const layoutContainer = document.getElementById('layoutContainer');
+                const layoutToggle = document.getElementById('layoutToggle');
+                const autoArrangeBtn = document.getElementById('autoArrangeBtn');
+
+                if (layoutContainer) layoutContainer.classList.add('free-layout');
+                if (layoutToggle) layoutToggle.textContent = '📐 NORMAL LAYOUT';
+                if (autoArrangeBtn) autoArrangeBtn.classList.add('show');
+                this._enableFreeLayout();
+                console.log('🎛️ Started in FREE LAYOUT mode');
+            }
         }
 
         startPerformanceTracking() {
