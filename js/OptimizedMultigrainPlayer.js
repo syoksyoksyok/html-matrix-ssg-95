@@ -175,7 +175,7 @@ export class OptimizedMultigrainPlayer {
                 this._updateAllSlotControlButtons();
                 this.saveCurrentState();
 
-                this.resourceManager.addTimeout(() => {
+                this.resourceManager.setTimeout(() => {
                     this._updateSequencerSelection();
                 }, CONSTANTS.SEQUENCER_SELECTION_DELAY_MS);
 
@@ -196,7 +196,7 @@ export class OptimizedMultigrainPlayer {
                     const activeVoices = this.grainVoiceManager.getActiveVoiceCount();
                     this.performanceMonitor.updateVoiceCount(activeVoices, CONSTANTS.MAX_VOICE_COUNT);
                     this.performanceMonitor.updateAudioState(this.audioContext.state);
-                    requestAnimationFrame(updatePerformance);
+                    this.resourceManager.requestAnimationFrame(updatePerformance);
                 } catch (error) {
                     Logger.error('Performance tracking error:', error);
                 }
@@ -373,15 +373,15 @@ export class OptimizedMultigrainPlayer {
             spectrumContainer.appendChild(ledMetersContainer);
             outputGroup.content.appendChild(spectrumContainer);
             outputContainer.appendChild(outputGroup.group);
-            
-            setTimeout(() => {
+
+            this.resourceManager.setTimeout(() => {
                 this.spectrumAnalyzer = new WinAMPSpectrumAnalyzer(
-                    spectrumCanvas, 
+                    spectrumCanvas,
                     this.grainVoiceManager.getAnalyser()
                 );
                 this._bindSpectrumEvents();
                 this._initializeLEDMeters();
-            }, 100);
+            }, CONSTANTS.SPECTRUM_ANALYZER_INIT_DELAY_MS);
         }
 
         _bindSpectrumEvents() {
@@ -416,7 +416,7 @@ export class OptimizedMultigrainPlayer {
                     }
                 }
                 
-                this.resourceManager.addTimeout(updateInfo, CONSTANTS.SPECTRUM_UPDATE_INTERVAL_MS);
+                this.resourceManager.setTimeout(updateInfo, CONSTANTS.SPECTRUM_UPDATE_INTERVAL_MS);
             };
             updateInfo();
         }
@@ -453,7 +453,7 @@ export class OptimizedMultigrainPlayer {
                     this._fadeLEDDisplay();
                 }
                 
-                requestAnimationFrame(updateLEDMeters);
+                this.resourceManager.requestAnimationFrame(updateLEDMeters);
             };
             
             updateLEDMeters();
@@ -663,7 +663,7 @@ export class OptimizedMultigrainPlayer {
                         if (spec.selected === i) option.selected = true;
                         inputElement.appendChild(option);
                     });
-                    inputElement.addEventListener('change', () => this.saveCurrentState());
+                    this.resourceManager.addEventListener(inputElement, 'change', () => this.saveCurrentState());
                     inputElement.id = elementId;
                     inputElement.className = 'form-element';
                     label.appendChild(inputElement);
@@ -687,8 +687,8 @@ export class OptimizedMultigrainPlayer {
                             </div>
                         </div>
                         <div id="${elementId}ValueDisplay" class="knob-value-display">${this._formatKnobValue(spec, spec.value)}</div>`;
-                    
-                    setTimeout(() => {
+
+                    this.resourceManager.setTimeout(() => {
                         this._updateKnobDisplay(elementId, spec, spec.value);
                         this._bindKnobEvents(elementId, spec, slotIndex);
                     }, 0);
@@ -1038,9 +1038,9 @@ export class OptimizedMultigrainPlayer {
                 
                 knobElement.style.transition = 'transform 0.1s ease';
                 knobElement.style.transform = `scale(${CONSTANTS.KNOB_SCALE_FACTOR})`;
-                this.resourceManager.addTimeout(() => {
+                this.resourceManager.setTimeout(() => {
                     knobElement.style.transform = 'scale(1)';
-                    this.resourceManager.addTimeout(() => {
+                    this.resourceManager.setTimeout(() => {
                         knobElement.style.transition = '';
                     }, CONSTANTS.KNOB_SCALE_DURATION_MS);
                 }, CONSTANTS.KNOB_SCALE_DURATION_MS);
@@ -1052,21 +1052,21 @@ export class OptimizedMultigrainPlayer {
                 this._setKnobLocked(elementId, !isCurrentlyLocked);
             };
 
-            knobElement.addEventListener('mousedown', e => { 
+            this.resourceManager.addEventListener(knobElement, 'mousedown', e => {
                 if (e.button === 0) {
-                    onDragStart(e.clientY); 
-                    e.preventDefault(); 
+                    onDragStart(e.clientY);
+                    e.preventDefault();
                 }
             });
-            
-            knobElement.addEventListener('contextmenu', onRightClick);
 
-            knobElement.addEventListener('dblclick', e => {
+            this.resourceManager.addEventListener(knobElement, 'contextmenu', onRightClick);
+
+            this.resourceManager.addEventListener(knobElement, 'dblclick', e => {
                 e.preventDefault();
                 onDoubleAction();
             });
 
-            knobElement.addEventListener('touchstart', e => {
+            this.resourceManager.addEventListener(knobElement, 'touchstart', e => {
                 const currentTime = Date.now();
                 const dragState = this.state.knobDragStates[elementId];
 
@@ -1095,11 +1095,11 @@ export class OptimizedMultigrainPlayer {
 
         _setupCollapsibleHeaders() {
             document.querySelectorAll('.collapsible-header').forEach(header => {
-                header.addEventListener('click', () => {
+                this.resourceManager.addEventListener(header, 'click', () => {
                     if (this.state.isFreeLayoutMode || header.classList.contains('no-collapse')) {
                         return;
                     }
-                    
+
                     const content = header.nextElementSibling;
                     const indicator = header.querySelector('.indicator');
                     if (content && indicator) {
@@ -1209,8 +1209,8 @@ export class OptimizedMultigrainPlayer {
             const layoutToggle = document.getElementById('layoutToggle');
             const autoArrangeBtn = document.getElementById('autoArrangeBtn');
             
-            layoutToggle.addEventListener('click', () => this._toggleLayoutMode());
-            autoArrangeBtn.addEventListener('click', () => this._autoArrangePanels());
+            this.resourceManager.addEventListener(layoutToggle, 'click', () => this._toggleLayoutMode());
+            this.resourceManager.addEventListener(autoArrangeBtn, 'click', () => this._autoArrangePanels());
             
             this._setupSectionDragging();
         }
@@ -1551,7 +1551,7 @@ export class OptimizedMultigrainPlayer {
                 }
             };
             
-            window.addEventListener('resize', this._resizeListener);
+            this.resourceManager.addEventListener(window, 'resize', this._resizeListener);
             Logger.log('🔄 Auto-scaling started for FREE LAYOUT mode');
         }
 
@@ -3033,11 +3033,27 @@ export class OptimizedMultigrainPlayer {
 
                 // Clean up audio resources
                 if (this.grainVoiceManager) {
-                    this.grainVoiceManager.stopAll();
+                    this.grainVoiceManager.destroy();
+                }
+
+                // Clean up performance monitor
+                if (this.performanceMonitor) {
+                    this.performanceMonitor.destroy();
+                }
+
+                // Clean up waveform renderers
+                if (this.state.waveformRenderers) {
+                    this.state.waveformRenderers.forEach(renderer => {
+                        if (renderer && typeof renderer.destroy === 'function') {
+                            renderer.destroy();
+                        }
+                    });
+                    this.state.waveformRenderers = [];
                 }
 
                 // Clean up spectrum analyzer
                 if (this.spectrumAnalyzer) {
+                    this.spectrumAnalyzer.destroy();
                     this.spectrumAnalyzer = null;
                 }
 
