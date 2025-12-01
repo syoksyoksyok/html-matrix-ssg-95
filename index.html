@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Multigrain Player - CTRL Matrix (Enhanced Random Controls)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <h2>🎧 Multigrain Player - Enhanced Random Controls</h2>
+
+  <button id="layoutToggle" class="layout-toggle">📐 FREE LAYOUT</button>
+  <button id="autoArrangeBtn" class="auto-arrange-btn">⚡ AUTO</button>
+
+  <div id="performanceMonitor" class="performance-monitor">
+    <div class="perf-title-bar">
+      <div style="display: flex; align-items: center;">
+        <span class="perf-title-icon"></span>
+        System Monitor
+      </div>
+      <div class="perf-minimize-btn">_</div>
+    </div>
+    <div class="perf-content">
+      <div class="perf-section">
+        <div class="perf-section-title">System Resources</div>
+        <div class="meter-row">
+          <span class="meter-label">CPU Usage:</span>
+          <span id="cpuUsage" class="meter-value">0%</span>
+          <div class="meter-bar">
+            <div id="cpuBar" class="meter-fill" style="width: 0%"></div>
+          </div>
+        </div>
+        <div class="meter-row">
+          <span class="meter-label">Memory:</span>
+          <span id="memoryUsage" class="meter-value">0MB</span>
+          <div class="meter-bar">
+            <div id="memoryBar" class="meter-fill" style="width: 0%"></div>
+          </div>
+        </div>
+        <div class="meter-row">
+          <span class="meter-label">FPS:</span>
+          <span id="fpsCounter" class="meter-value">60</span>
+          <div class="meter-bar">
+            <div id="fpsBar" class="meter-fill" style="width: 100%"></div>
+          </div>
+        </div>
+      </div>
+      <div class="perf-section">
+        <div class="perf-section-title">Audio Engine</div>
+        <div class="meter-row">
+          <span class="meter-label">Voices:</span>
+          <span id="activeVoices" class="meter-value">0/128</span>
+          <div class="meter-bar">
+            <div id="voicesBar" class="meter-fill" style="width: 0%"></div>
+          </div>
+        </div>
+        <div class="meter-row">
+          <span class="meter-label">Audio State:</span>
+          <span id="audioState" class="meter-value">suspended</span>
+          <span id="audioIndicator" class="status-indicator status-suspended"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="layoutContainer" class="layout-container">
+    <div id="controls"></div>
+    <div id="utilSectionContainer"></div>
+    <div id="ctrlSection"></div>
+    <div id="sequencers"></div>
+    <div id="outputSection"></div>
+  </div>
+
+  <div id="hiddenFileInputs">
+    <input type="file" id="hiddenFileInput-slot0" accept=".wav,.mp3" data-slot="0">
+    <input type="file" id="hiddenFileInput-slot1" accept=".wav,.mp3" data-slot="1">
+    <input type="file" id="hiddenFileInput-slot2" accept=".wav,.mp3" data-slot="2">
+    <input type="file" id="hiddenFileInput-slot3" accept=".wav,.mp3" data-slot="3">
+  </div>
+
+  <script type="module">
+    import { OptimizedMultigrainPlayer } from './js/OptimizedMultigrainPlayer.js';
+
+    // Initialize the application
+    let player = null;
+
+    try {
+      player = new OptimizedMultigrainPlayer();
+      player.init();
+
+      // Make player accessible from console for debugging
+      if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        window.player = player;
+        console.log('🎛️ Player is available as window.player');
+      }
+
+      // Cleanup on page unload
+      window.addEventListener('beforeunload', () => {
+        if (player && typeof player.destroy === 'function') {
+          player.destroy();
+        }
+      });
+    } catch (error) {
+      console.error('Failed to initialize Multigrain Player:', error);
+      alert('Failed to initialize the application. Please check the console for details.');
+    }
+  </script>
+</body>
+</html>
