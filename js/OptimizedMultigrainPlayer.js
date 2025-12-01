@@ -189,6 +189,19 @@ export class OptimizedMultigrainPlayer {
                 this.resourceManager.addEventListener(window, 'beforeunload', () => {
                     this._stopAutoScaling();
                 });
+
+                // Initialize FREE LAYOUT mode if enabled
+                if (this.state.isFreeLayoutMode) {
+                    const layoutContainer = document.getElementById('layoutContainer');
+                    const layoutToggle = document.getElementById('layoutToggle');
+                    const autoArrangeBtn = document.getElementById('autoArrangeBtn');
+
+                    if (layoutContainer) layoutContainer.classList.add('free-layout');
+                    if (layoutToggle) layoutToggle.textContent = '📐 NORMAL LAYOUT';
+                    if (autoArrangeBtn) autoArrangeBtn.classList.add('show');
+                    this._enableFreeLayout();
+                    Logger.log('🎛️ Started in FREE LAYOUT mode');
+                }
             } catch (error) {
                 Logger.error('Failed to initialize player:', error);
                 throw error;
@@ -1018,6 +1031,7 @@ export class OptimizedMultigrainPlayer {
 
                 // Real-time sequencer update for SEQ PROB knob
                 if (elementId === 'randomDensity') {
+                    Logger.debug(`SEQ PROB knob dragged to: ${newValue}`);
                     this.randomizeSequencer();
                 }
             };
