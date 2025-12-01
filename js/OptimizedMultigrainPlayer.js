@@ -38,7 +38,7 @@ const CONSTANTS = {
     LAYOUT_MAX_HEIGHT: 1000,
     LAYOUT_FALLBACK_OFFSET: 50,
     LAYOUT_DEFAULT_WIDTH: 300,
-    LAYOUT_CTRL_SECTION_WIDTH: 900,
+    LAYOUT_CTRL_SECTION_WIDTH: 1200,
     LAYOUT_MAIN_SECTION_WIDTH: 580,
     LAYOUT_OUTPUT_SECTION_WIDTH: 600,
     
@@ -140,7 +140,7 @@ export class OptimizedMultigrainPlayer {
                 multiSelectStart: -1,
                 multiSelectEnd: -1,
                 isMultiSelecting: false,
-                isFreeLayoutMode: false,
+                isFreeLayoutMode: true,
                 sectionPositions: {},
                 isMKeyPressed: false,
                 isOKeyPressed: false,
@@ -1015,6 +1015,11 @@ export class OptimizedMultigrainPlayer {
 
                 dragState.currentValue = newValue;
                 this._updateKnobDisplay(elementId, spec, newValue);
+
+                // Real-time sequencer update for SEQ PROB knob
+                if (elementId === 'randomDensity') {
+                    this.randomizeSequencer();
+                }
             };
 
             const onDragEnd = () => {
