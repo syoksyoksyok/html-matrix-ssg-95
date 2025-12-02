@@ -9,6 +9,8 @@ import { deepClone } from './utils/cloneUtils.js';
 import { loadAudioFile, validateAudioFile, trimSilence } from './utils/audioFileUtils.js';
 import { generateRandomValue } from './utils/mathUtils.js';
 import { calculateNormalizedSensitivity } from './utils/knobUtils.js';
+import { DOMCache } from './utils/DOMCache.js';
+import { StateManager } from './utils/StateManager.js';
 
 // Constants
 const CONSTANTS = {
@@ -82,6 +84,8 @@ export class OptimizedMultigrainPlayer {
                 this.performanceMonitor = new PerformanceMonitor();
                 this.spectrumAnalyzer = null;
                 this.resourceManager = new ResourceManager();
+                this.domCache = new DOMCache();
+                this.stateManager = new StateManager(50); // 50 states max
             
             this.config = {
                 SLOTS: 4,
@@ -194,11 +198,14 @@ export class OptimizedMultigrainPlayer {
                     this._stopAutoScaling();
                 });
 
+                // Prefetch frequently accessed DOM elements
+                this._prefetchDOMElements();
+
                 // Initialize FREE LAYOUT mode if enabled
                 if (this.state.isFreeLayoutMode) {
-                    const layoutContainer = document.getElementById('layoutContainer');
-                    const layoutToggle = document.getElementById('layoutToggle');
-                    const autoArrangeBtn = document.getElementById('autoArrangeBtn');
+                    const layoutContainer = this.domCache.getElementById('layoutContainer');
+                    const layoutToggle = this.domCache.getElementById('layoutToggle');
+                    const autoArrangeBtn = this.domCache.getElementById('autoArrangeBtn');
 
                     if (layoutContainer) layoutContainer.classList.add('free-layout');
                     if (layoutToggle) layoutToggle.textContent = '📐 NORMAL LAYOUT';
@@ -864,7 +871,7 @@ export class OptimizedMultigrainPlayer {
                 
                 // 視覚的フィードバック
                 button.classList.add('flash');
-                setTimeout(() => {
+                this.resourceManager.setTimeout(() => {
                     button.classList.remove('flash');
                 }, 300);
             }
@@ -908,7 +915,7 @@ export class OptimizedMultigrainPlayer {
             const buttons = document.querySelectorAll(`[data-param="${paramId}"].param-reset-btn`);
             buttons.forEach(button => {
                 button.classList.add('flash');
-                setTimeout(() => {
+                this.resourceManager.setTimeout(() => {
                     button.classList.remove('flash');
                 }, 300);
             });
@@ -959,7 +966,7 @@ export class OptimizedMultigrainPlayer {
             const buttons = document.querySelectorAll(`[data-param="${paramId}"]`);
             buttons.forEach(button => {
                 button.classList.add('flash');
-                setTimeout(() => {
+                this.resourceManager.setTimeout(() => {
                     button.classList.remove('flash');
                 }, 300);
             });
@@ -1361,7 +1368,7 @@ export class OptimizedMultigrainPlayer {
                 };
                 
                 // アニメーション終了後にtransitionを削除
-                setTimeout(() => {
+                this.resourceManager.setTimeout(() => {
                     section.style.transition = '';
                 }, 300);
             });
@@ -1577,7 +1584,7 @@ export class OptimizedMultigrainPlayer {
                     this._adjustSectionsToViewport();
                     
                     if (this.spectrumAnalyzer) {
-                        setTimeout(() => {
+                        this.resourceManager.setTimeout(() => {
                             this.spectrumAnalyzer.setupCanvas();
                         }, 100);
                     }
@@ -2103,18 +2110,18 @@ export class OptimizedMultigrainPlayer {
         }
 
         _handleModeShortcut(modeValue) {
-            const slotModeSelect = document.getElementById('slotMode');
+            const slotModeSelect = this.domCache.getElementById('slotMode');
             if (slotModeSelect) {
                 slotModeSelect.value = modeValue;
-                
+
                 // 視覚的フィードバック
-                const modePanel = document.getElementById('mode-section');
+                const modePanel = this.domCache.getElementById('mode-section');
                 if (modePanel) {
                     modePanel.style.transition = 'transform 0.1s ease';
                     modePanel.style.transform = 'scale(1.02)';
-                    setTimeout(() => {
+                    this.resourceManager.setTimeout(() => {
                         modePanel.style.transform = 'scale(1)';
-                        setTimeout(() => {
+                        this.resourceManager.setTimeout(() => {
                             modePanel.style.transition = '';
                         }, 100);
                     }, 100);
@@ -2496,7 +2503,7 @@ export class OptimizedMultigrainPlayer {
         
         _sequencerTick() {
             try {
-                const slotMode = parseInt(document.getElementById('slotMode').value);
+                const slotMode = parseInt(this.domCache.getElementById('slotMode').value);
                 let targetSlots = [];
 
                 if (slotMode === 4) {
@@ -2642,8 +2649,8 @@ export class OptimizedMultigrainPlayer {
         }
         
         _updateUndoRedoButtons() {
-            this.ui.undoButton.disabled = this.state.historyIndex <= 0;
-            this.ui.redoButton.disabled = this.state.historyIndex >= this.state.history.length - 1;
+            this.ui.undoButton.disabled = !this.stateManager.canUndo();
+            this.ui.redoButton.disabled = !this.stateManager.canRedo();
         }
 
         randomizeSequencer() {
@@ -2959,7 +2966,7 @@ export class OptimizedMultigrainPlayer {
             }
             
             return {
-                globalControls: { slotMode: document.getElementById('slotMode').value },
+                globalControls: { slotMode: this.domCache.getElementById('slotMode').value },
                 perSlotControls: Array.from({ length: this.config.SLOTS }, (_, s) => {
                     const slotState = {};
                     this.config.PER_SLOT_CONTROL_SPECS.forEach(spec => {
@@ -2979,7 +2986,7 @@ export class OptimizedMultigrainPlayer {
         }
 
         _applyState(state) {
-            document.getElementById('slotMode').value = state.globalControls.slotMode;
+            this.domCache.getElementById('slotMode').value = state.globalControls.slotMode;
             
             state.perSlotControls.forEach((slotState, s) => {
                 for (const id in slotState) {
@@ -3041,28 +3048,22 @@ export class OptimizedMultigrainPlayer {
         }
 
         saveCurrentState() {
-            if (this.state.historyIndex < this.state.history.length - 1) {
-                this.state.history = this.state.history.slice(0, this.state.historyIndex + 1);
-            }
-            this.state.history.push(this._getControlState());
-            if (this.state.history.length > this.config.MAX_HISTORY_STATES) {
-                this.state.history.shift();
-            }
-            this.state.historyIndex = this.state.history.length - 1;
+            const currentState = this._getControlState();
+            this.stateManager.saveState(currentState);
             this._updateUndoRedoButtons();
         }
 
         undo() {
-            if (this.state.historyIndex > 0) {
-                this.state.historyIndex--;
-                this._applyState(this.state.history[this.state.historyIndex]);
+            const previousState = this.stateManager.undo();
+            if (previousState) {
+                this._applyState(previousState);
             }
         }
 
         redo() {
-            if (this.state.historyIndex < this.state.history.length - 1) {
-                this.state.historyIndex++;
-                this._applyState(this.state.history[this.state.historyIndex]);
+            const nextState = this.stateManager.redo();
+            if (nextState) {
+                this._applyState(nextState);
             }
         }
 
@@ -3126,5 +3127,35 @@ export class OptimizedMultigrainPlayer {
             } catch (error) {
                 Logger.error('Error during OptimizedMultigrainPlayer destruction:', error);
             }
+        }
+
+        /**
+         * Prefetch frequently accessed DOM elements into cache
+         * @private
+         */
+        _prefetchDOMElements() {
+            const elementsToCache = {
+                // Layout
+                layoutContainer: { type: 'id', value: 'layoutContainer' },
+                layoutToggle: { type: 'id', value: 'layoutToggle' },
+                autoArrangeBtn: { type: 'id', value: 'autoArrangeBtn' },
+
+                // Controls
+                slotMode: { type: 'id', value: 'slotMode' },
+
+                // Panels
+                modeSection: { type: 'id', value: 'mode-section' },
+
+                // Slot-specific elements (prefetch for all slots)
+                ...Object.fromEntries(
+                    Array.from({ length: this.config.SLOTS }, (_, i) => [
+                        `fileName-slot${i}`,
+                        { type: 'id', value: `fileName-slot${i}` }
+                    ])
+                )
+            };
+
+            this.domCache.prefetch(elementsToCache);
+            Logger.log(`✅ Prefetched ${Object.keys(elementsToCache).length} DOM elements`);
         }
     }
