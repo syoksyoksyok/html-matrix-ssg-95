@@ -1,0 +1,12 @@
+{
+  "name": "html-matrix-ssg-95",
+  "version": "1.0.0",
+  "description": "Matrix-SSG-95 Granular Synthesizer",
+  "type": "module",
+  "scripts": {
+    "test": "node test-simple.js"
+  },
+  "keywords": ["audio", "synthesizer", "granular"],
+  "author": "",
+  "license": "MIT"
+}
