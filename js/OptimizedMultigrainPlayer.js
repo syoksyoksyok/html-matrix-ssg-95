@@ -690,7 +690,9 @@ export class OptimizedMultigrainPlayer {
             this.resourceManager.addEventListener(this.ui.undoButton, 'click', () => this.undo());
             this.resourceManager.addEventListener(this.ui.redoButton, 'click', () => this.redo());
             this.resourceManager.addEventListener(this.ui.loadPathButton, 'click', () => this._loadFolderSamples());
-            this.resourceManager.addEventListener(this.ui.togglePerfMonitor, 'click', () => this.performanceMonitor.toggle());
+            this.resourceManager.addEventListener(this.ui.togglePerfMonitor, 'click', () => {
+                this._safeExecute(() => this.performanceMonitor.toggle(), 'Performance Monitor toggle');
+            });
 
             // パラメータ別のランダマイズボタンのイベントリスナー
             this.resourceManager.addEventListener(document, 'click', (e) => {
@@ -2383,8 +2385,20 @@ export class OptimizedMultigrainPlayer {
                 this.saveCurrentState();
 
             } catch (err) {
-                Logger.error("Load error:", err);
+                Logger.error("❌ Folder load error:", err);
                 this.ui.loadingStatus.textContent = 'Error!';
+
+                // Show user-friendly error message
+                let errorMessage = 'フォルダーからのファイル読み込みに失敗しました。';
+                if (err.name === 'AbortError') {
+                    errorMessage = 'ファイル選択がキャンセルされました。';
+                } else if (err.name === 'NotAllowedError') {
+                    errorMessage = 'フォルダーへのアクセス権限がありません。';
+                } else if (err.message) {
+                    errorMessage += `\n\n詳細: ${err.message}`;
+                }
+
+                this._showErrorNotification('フォルダー読み込みエラー', errorMessage);
             } finally {
                 this.ui.loadPathButton.disabled = false;
                 this.ui.loadPathButton.textContent = 'Load';
@@ -2716,5 +2730,38 @@ export class OptimizedMultigrainPlayer {
 
             this.domCache.prefetch(elementsToCache);
             Logger.log(`✅ Prefetched ${Object.keys(elementsToCache).length} DOM elements`);
+        }
+
+        /**
+         * Show user-friendly error notification
+         * @param {string} title - Error title
+         * @param {string} message - Error message
+         * @param {Error} error - Original error object (optional)
+         */
+        _showErrorNotification(title, message, error = null) {
+            const fullMessage = error ? `${message}\n\n詳細: ${error.message}` : message;
+            alert(`❌ ${title}\n\n${fullMessage}`);
+
+            if (error) {
+                Logger.error(`${title}:`, error);
+            } else {
+                Logger.error(`${title}: ${message}`);
+            }
+        }
+
+        /**
+         * Safe execution wrapper with error handling
+         * @param {Function} fn - Function to execute
+         * @param {string} context - Context description for error messages
+         * @returns {boolean} Success status
+         */
+        _safeExecute(fn, context) {
+            try {
+                fn();
+                return true;
+            } catch (error) {
+                Logger.error(`Error in ${context}:`, error);
+                return false;
+            }
         }
     }
