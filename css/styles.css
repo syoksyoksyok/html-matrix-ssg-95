@@ -1,6 +1,43 @@
 :root {
+  /* Font sizes */
   --label-font-size: 0.8rem;
+  --font-size-base: 1rem;
+  --font-size-small: 0.7em;
+
+  /* Spacing */
   --spacing-unit: 8px;
+  --spacing-xs: 2px;
+  --spacing-sm: 4px;
+  --spacing-md: 8px;
+  --spacing-lg: 10px;
+  --spacing-xl: 15px;
+
+  /* Colors */
+  --color-bg: #c0c0c0;
+  --color-bg-dark: #e0e0e0;
+  --color-bg-panel: #e0e0e0;
+  --color-border-light: #fff;
+  --color-border-dark: #808080;
+  --color-title-bg: #000080;
+  --color-title-text: white;
+  --color-text: black;
+  --color-text-primary: #000080;
+
+  /* Borders */
+  --border-outset: 2px outset #fff;
+  --border-inset: 2px inset #808080;
+  --border-button-outset: 2px outset #fff;
+  --border-button-inset: 2px inset #808080;
+
+  /* Buttons */
+  --button-bg: #e0e0e0;
+  --button-bg-hover: #d0d0d0;
+  --button-bg-active: #c0c0c0;
+  --button-padding: 8px 15px;
+
+  /* Transitions */
+  --transition-fast: 0.2s;
+  --transition-normal: 0.3s;
 }
 
 body {
@@ -216,18 +253,26 @@ label span {
   font-weight: bold;
 }
 
+/* Base button styles */
 button {
-  background: #e0e0e0;
-  border: 2px outset #fff;
-  padding: 8px 15px;
+  background: var(--button-bg);
+  border: var(--border-button-outset);
+  padding: var(--button-padding);
   margin-top: var(--spacing-unit);
   margin-right: calc(var(--spacing-unit) / 2);
   cursor: pointer;
-  font-size: 1rem;
+  font-size: var(--font-size-base);
+  font-family: "MS Sans Serif", sans-serif;
+  color: var(--color-text);
 }
 
-button:active {
-  border: 2px inset #808080;
+button:hover:not(:disabled) {
+  background: var(--button-bg-hover);
+}
+
+button:active:not(:disabled) {
+  border: var(--border-button-inset);
+  background: var(--button-bg-active);
 }
 
 button:disabled {
@@ -529,16 +574,19 @@ button:disabled {
   justify-content: center;
 }
 
-.param-random-btn {
+/* Base styles for parameter buttons */
+.param-random-btn,
+.param-reset-btn,
+.param-lock-btn {
   width: 15px;
   height: 19px;
-  border: 1px outset #fff;
-  background: #e0e0e0;
+  border: 1px outset var(--color-border-light);
+  background: var(--button-bg);
   cursor: pointer;
   font-size: 10px;
   font-weight: bold;
   font-family: "MS Sans Serif", sans-serif;
-  color: #000;
+  color: var(--color-text);
   text-align: center;
   line-height: 17px;
   margin: 0;
@@ -547,9 +595,10 @@ button:disabled {
   user-select: none;
   transform: rotate(-90deg);
   flex-shrink: 0;
-  transition: background-color 0.2s;
+  transition: background-color var(--transition-fast);
   position: relative;
 }
+
 
 .param-random-btn::before {
   content: 'R';
@@ -561,38 +610,26 @@ button:disabled {
   font-weight: bold;
 }
 
-.param-random-btn:hover {
-  background: #d0d0d0;
+/* Common hover/active states for parameter buttons */
+.param-random-btn:hover,
+.param-reset-btn:hover,
+.param-lock-btn:hover {
+  background: var(--button-bg-hover);
 }
 
-.param-random-btn:active {
-  border: 1px inset #808080;
+.param-random-btn:active,
+.param-reset-btn:active,
+.param-lock-btn:active {
+  border: 1px inset var(--color-border-dark);
 }
 
 .param-random-btn.flash {
   background: #80ff80;
 }
 
+/* Reset button specific styles */
 .param-reset-btn {
-  width: 15px;
-  height: 19px;
-  border: 1px outset #fff;
   background: #f0e0e0;
-  cursor: pointer;
-  font-size: 10px;
-  font-weight: bold;
-  font-family: "MS Sans Serif", sans-serif;
-  color: #000;
-  text-align: center;
-  line-height: 17px;
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-  user-select: none;
-  transform: rotate(-90deg);
-  flex-shrink: 0;
-  transition: background-color 0.2s;
-  position: relative;
 }
 
 .param-reset-btn::before {
@@ -606,38 +643,18 @@ button:disabled {
   color: #800000;
 }
 
+/* Reset button hover overrides default if needed */
 .param-reset-btn:hover {
   background: #e0d0d0;
-}
-
-.param-reset-btn:active {
-  border: 1px inset #808080;
 }
 
 .param-reset-btn.flash {
   background: #ff8080;
 }
 
+/* Lock button specific styles */
 .param-lock-btn {
-  width: 15px;
-  height: 19px;
-  border: 1px outset #fff;
   background: #e0f0e0;
-  cursor: pointer;
-  font-size: 10px;
-  font-weight: bold;
-  font-family: "MS Sans Serif", sans-serif;
-  color: #000;
-  text-align: center;
-  line-height: 17px;
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-  user-select: none;
-  transform: rotate(-90deg);
-  flex-shrink: 0;
-  transition: background-color 0.2s;
-  position: relative;
 }
 
 .param-lock-btn::before {
@@ -651,12 +668,9 @@ button:disabled {
   color: #006000;
 }
 
+/* Lock button hover overrides default if needed */
 .param-lock-btn:hover {
   background: #d0e0d0;
-}
-
-.param-lock-btn:active {
-  border: 1px inset #808080;
 }
 
 .param-lock-btn.flash {

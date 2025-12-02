@@ -5,6 +5,10 @@ import { WinAMPSpectrumAnalyzer } from './audio/WinAMPSpectrumAnalyzer.js';
 import { OptimizedGrainVoiceManager } from './audio/OptimizedGrainVoiceManager.js';
 import { PerformanceMonitor } from './ui/PerformanceMonitor.js';
 import { OptimizedWaveformRenderer } from './ui/OptimizedWaveformRenderer.js';
+import { deepClone } from './utils/cloneUtils.js';
+import { loadAudioFile, validateAudioFile, trimSilence } from './utils/audioFileUtils.js';
+import { generateRandomValue } from './utils/mathUtils.js';
+import { calculateNormalizedSensitivity } from './utils/knobUtils.js';
 
 // Constants
 const CONSTANTS = {
@@ -2286,20 +2290,28 @@ export class OptimizedMultigrainPlayer {
             }
         }
 
-        _handleFileLoad(e) {
+        async _handleFileLoad(e) {
             const slot = parseInt(e.target.dataset.slot);
             const file = e.target.files[0];
             if (!file) return;
 
-            file.arrayBuffer()
-                .then(buf => this.audioContext.decodeAudioData(buf))
-                .then(decoded => {
-                    this.state.audioBuffers[slot] = decoded;
-                    this.state.waveformRenderers[slot].drawWaveform(decoded);
-                    document.getElementById(`fileName-slot${slot}`).textContent = file.name;
-                    this.saveCurrentState();
-                })
-                .catch(err => Logger.error("Error loading audio file:", err));
+            try {
+                // Validate and load file with proper error handling
+                const decoded = await loadAudioFile(file, this.audioContext);
+
+                this.state.audioBuffers[slot] = decoded;
+                this.state.waveformRenderers[slot].drawWaveform(decoded);
+                document.getElementById(`fileName-slot${slot}`).textContent = file.name;
+                this.saveCurrentState();
+
+                Logger.log(`✅ Slot ${slot}: ${file.name} loaded successfully`);
+            } catch (err) {
+                Logger.error(`❌ Failed to load file for Slot ${slot}:`, err);
+                alert(`ファイルの読み込みに失敗しました:\n${err.message}`);
+
+                // Clear the file input
+                e.target.value = '';
+            }
         }
         
         _handleStepClick(cell) {
@@ -2893,53 +2905,34 @@ export class OptimizedMultigrainPlayer {
 
         async _processAndLoadFile(fileHandle, slotIndex) {
             try {
-                // Check AudioContext state
-                if (this.audioContext.state === 'closed') {
-                    throw new Error('AudioContext is closed');
-                }
-
-                // Resume if suspended
-                if (this.audioContext.state === 'suspended') {
-                    await this.audioContext.resume();
-                }
-
                 const file = await fileHandle.getFile();
                 if (!file) {
                     throw new Error('Failed to get file');
                 }
 
-                const arrayBuffer = await file.arrayBuffer();
-                if (!arrayBuffer) {
-                    throw new Error('Failed to read file');
-                }
+                // Load file with validation and error handling
+                let decodedData = await loadAudioFile(file, this.audioContext);
 
-                const decodedData = await this.audioContext.decodeAudioData(arrayBuffer);
+                // Trim silence
+                const trimmedBuffer = trimSilence(decodedData, this.audioContext, 0.01);
 
-                const rawData = decodedData.getChannelData(0);
-                const sampleRate = decodedData.sampleRate;
-                const threshold = 0.01;
-                let startIdx = 0, endIdx = rawData.length - 1;
-                
-                while (startIdx < rawData.length && Math.abs(rawData[startIdx]) < threshold) startIdx++;
-                while (endIdx > startIdx && Math.abs(rawData[endIdx]) < threshold) endIdx--;
-                
-                const trimmedLength = endIdx - startIdx + 1;
-                if (trimmedLength <= 0) return;
-
-                const trimmedBuffer = this.audioContext.createBuffer(1, trimmedLength, sampleRate);
-                trimmedBuffer.copyToChannel(rawData.subarray(startIdx, endIdx + 1), 0);
-                
+                // Normalize audio
                 const data = trimmedBuffer.getChannelData(0);
                 const max = data.reduce((max, val) => Math.max(max, Math.abs(val)), 0);
                 if (max > 0) {
-                    for(let i = 0; i < data.length; i++) data[i] /= max;
+                    for (let i = 0; i < data.length; i++) {
+                        data[i] /= max;
+                    }
                 }
-                
+
+                // Store buffer and update UI
                 this.state.audioBuffers[slotIndex] = trimmedBuffer;
                 this.state.waveformRenderers[slotIndex].drawWaveform(trimmedBuffer);
                 document.getElementById(`fileName-slot${slotIndex}`).textContent = file.name;
+
+                Logger.log(`✅ Slot ${slotIndex}: ${file.name} processed successfully`);
             } catch (error) {
-                Logger.error(`Error processing ${fileHandle.name}:`, error);
+                Logger.error(`❌ Error processing ${fileHandle.name}:`, error);
 
                 // Cleanup on error
                 if (this.state.audioBuffers[slotIndex]) {
@@ -2975,12 +2968,12 @@ export class OptimizedMultigrainPlayer {
                     });
                     return slotState;
                 }),
-                sequencerPatterns: JSON.parse(JSON.stringify(this.state.sequencerPatterns)),
-                slotSoloStatus: JSON.parse(JSON.stringify(this.state.slotSoloStatus)),
-                slotMuteStatus: JSON.parse(JSON.stringify(this.state.slotMuteStatus)),
+                sequencerPatterns: deepClone(this.state.sequencerPatterns),
+                slotSoloStatus: deepClone(this.state.slotSoloStatus),
+                slotMuteStatus: deepClone(this.state.slotMuteStatus),
                 tempoBpm: this.state.tempoBpm,
                 randomDensity: this._getKnobValue('randomDensity'),
-                knobLockStates: JSON.parse(JSON.stringify(this.state.knobLockStates)),
+                knobLockStates: deepClone(this.state.knobLockStates),
                 collapsedStates: collapsedStates
             };
         }
@@ -3000,18 +2993,18 @@ export class OptimizedMultigrainPlayer {
                 }
             });
 
-            this.state.sequencerPatterns = JSON.parse(JSON.stringify(state.sequencerPatterns));
+            this.state.sequencerPatterns = deepClone(state.sequencerPatterns);
             this.state.sequencerPatterns.forEach((pattern, slot) => {
                 pattern.forEach((isActive, step) => {
                     document.querySelector(`.step[data-slot='${slot}'][data-step='${step}']`)?.classList.toggle("active", isActive);
                 });
             });
 
-            this.state.slotSoloStatus = JSON.parse(JSON.stringify(state.slotSoloStatus));
-            this.state.slotMuteStatus = JSON.parse(JSON.stringify(state.slotMuteStatus));
-            
+            this.state.slotSoloStatus = deepClone(state.slotSoloStatus);
+            this.state.slotMuteStatus = deepClone(state.slotMuteStatus);
+
             if (state.knobLockStates) {
-                this.state.knobLockStates = JSON.parse(JSON.stringify(state.knobLockStates));
+                this.state.knobLockStates = deepClone(state.knobLockStates);
                 
                 Object.entries(this.state.knobLockStates).forEach(([elementId, isLocked]) => {
                     const knobElement = document.getElementById(`${elementId}Knob`);
