@@ -5,6 +5,7 @@ import { WinAMPSpectrumAnalyzer } from './audio/WinAMPSpectrumAnalyzer.js';
 import { OptimizedGrainVoiceManager } from './audio/OptimizedGrainVoiceManager.js';
 import { PerformanceMonitor } from './ui/PerformanceMonitor.js';
 import { OptimizedWaveformRenderer } from './ui/OptimizedWaveformRenderer.js';
+import { UIBuilder } from './ui/UIBuilder.js';
 import { deepClone } from './utils/cloneUtils.js';
 import { loadAudioFile, validateAudioFile, trimSilence } from './utils/audioFileUtils.js';
 import { generateRandomValue } from './utils/mathUtils.js';
@@ -178,6 +179,7 @@ export class OptimizedMultigrainPlayer {
                 this.layoutManager.setFreeLayoutMode(this.state.isFreeLayoutMode);
 
                 this._createUI();
+                this._bindKnobEventsForAllControls();
                 this._bindEvents();
                 this._updateBpmKnob(this.state.tempoBpm);
                 this._updateRandomDensityKnob(this.config.RANDOM_DENSITY_SPEC.value);
@@ -230,541 +232,44 @@ export class OptimizedMultigrainPlayer {
         }
 
         _createUI() {
-            this._createControls();
-            this._createUtilSection();
-            this._createCtrlSection();
-            this._createSequencer();
-            this._createOutputSection();
-            this._setupCollapsibleHeaders();
+            // Initialize UIBuilder
+            this.uiBuilder = new UIBuilder(this.config, this.domCache, this.resourceManager);
+
+            // Create all UI with callbacks
+            const callbacks = {
+                onControlChange: () => this.saveCurrentState()
+            };
+            this.uiBuilder.createAllUI(callbacks);
+
+            // Get waveform renderers from UIBuilder
+            this.state.waveformRenderers = this.uiBuilder.getWaveformRenderers();
         }
 
-        _createControls() {
-            const controlsContainer = this.domCache.getElementById('controls');
-
-            const modeGroup = this._createPanelGroup('MODE:', 'mode-content');
+        /**
+         * Bind knob events for all control knobs after UI creation
+         */
+        _bindKnobEventsForAllControls() {
+            // Bind global control knobs
             this.config.GLOBAL_CONTROL_SPECS.forEach(spec => {
-                modeGroup.content.appendChild(this._createControlElement(spec));
-            });
-            controlsContainer.appendChild(modeGroup.group);
-            
-            modeGroup.content.classList.add('collapsed-content');
-            const indicator = modeGroup.title.querySelector('.indicator');
-            if (indicator) {
-                indicator.textContent = '+';
-            }
-
-            const mainGroup = this._createPanelGroup('MAIN:', 'main-content');
-            const waveformDisplayContainer = document.createElement('div');
-            waveformDisplayContainer.className = 'waveform-display-container';
-
-            for (let s = 0; s < this.config.SLOTS; s++) {
-                const canvas = document.createElement('canvas');
-                canvas.id = `waveform-${s}`;
-                canvas.width = this.config.WAVEFORM_CANVAS_WIDTH;
-                canvas.height = this.config.WAVEFORM_CANVAS_HEIGHT;
-                canvas.className = 'waveform-canvas';
-                waveformDisplayContainer.appendChild(canvas);
-                
-                this.state.waveformRenderers.push(new OptimizedWaveformRenderer(canvas));
-            }
-            mainGroup.content.appendChild(waveformDisplayContainer);
-            controlsContainer.appendChild(mainGroup.group);
-        }
-
-        _createCtrlSection() {
-            const ctrlContainer = this.domCache.getElementById('ctrlSection');
-            const ctrlGroup = this._createPanelGroup('CTRL:', 'ctrl-content');
-
-            const slotMatrixContainer = this._createSlotMatrix(ctrlGroup.content);
-            
-            const emptyCell = document.createElement('div');
-            emptyCell.className = 'label-cell';
-            slotMatrixContainer.appendChild(emptyCell);
-            
-            this.config.PER_SLOT_CONTROL_SPECS.forEach((spec, index) => {
-                const headerCell = document.createElement('div');
-                headerCell.className = 'param-header-cell';
-                
-                // 全てのパラメータにR、L、0ボタンを追加
-                headerCell.innerHTML = `
-                    <div class="param-header-with-button">
-                        <div class="param-header-text">${spec.label}</div>
-                        <div class="param-button-group">
-                            <button class="param-random-btn" data-param="${spec.id}" title="Randomize ${spec.label} for all slots"></button>
-                            <button class="param-lock-btn" data-param="${spec.id}" title="Toggle lock/unlock ${spec.label} for all slots"></button>
-                            <button class="param-reset-btn" data-param="${spec.id}" title="Reset ${spec.label} to default for all slots"></button>
-                        </div>
-                    </div>
-                `;
-                
-                slotMatrixContainer.appendChild(headerCell);
-            });
-            
-            for (let s = 0; s < this.config.SLOTS; s++) {
-                const slotLabelCell = document.createElement('div');
-                slotLabelCell.className = 'label-cell';
-                slotLabelCell.dataset.slot = s;
-                slotLabelCell.innerHTML = `
-                    <span>Slot ${s + 1}</span>
-                    <span id="fileName-slot${s}" class="file-name-display"></span>
-                    <div class="slot-controls-container">
-                        <button class="slot-control-btn" id="soloBtn-${s}" data-slot="${s}" data-type="solo" title="Solo">S</button>
-                        <button class="slot-control-btn" id="muteBtn-${s}" data-slot="${s}" data-type="mute" title="Mute">M</button>
-                    </div>
-                `;
-                slotMatrixContainer.appendChild(slotLabelCell);
-                
-                this.config.PER_SLOT_CONTROL_SPECS.forEach(spec => {
-                    const controlCell = document.createElement('div');
-                    controlCell.className = 'control-cell';
-                    controlCell.appendChild(this._createControlElement(spec, s));
-                    slotMatrixContainer.appendChild(controlCell);
-                });
-            }
-            ctrlContainer.appendChild(ctrlGroup.group);
-        }
-
-        _createOutputSection() {
-            const outputContainer = this.domCache.getElementById('outputSection');
-            const outputGroup = this._createPanelGroup('OUTPUT:', 'output-content');
-            
-            const winampDisplay = document.createElement('div');
-            winampDisplay.className = 'winamp-display';
-            winampDisplay.id = 'winampDisplay';
-            winampDisplay.textContent = 'MULTIGRAIN SPECTRUM ANALYZER v2.1 - ENHANCED RANDOM CONTROLS';
-            outputGroup.content.appendChild(winampDisplay);
-            
-            const spectrumContainer = document.createElement('div');
-            spectrumContainer.className = 'spectrum-analyzer-container';
-            
-            const spectrumDisplayArea = document.createElement('div');
-            spectrumDisplayArea.className = 'spectrum-display-area';
-            
-            const spectrumCanvas = document.createElement('canvas');
-            spectrumCanvas.className = 'spectrum-analyzer-canvas';
-            spectrumCanvas.id = 'spectrumCanvas';
-            spectrumDisplayArea.appendChild(spectrumCanvas);
-            
-            const freqLabels = document.createElement('div');
-            freqLabels.className = 'frequency-labels';
-            freqLabels.innerHTML = `
-                <span>80Hz</span>
-                <span>200Hz</span>
-                <span>500Hz</span>
-                <span>1kHz</span>
-                <span>2kHz</span>
-                <span>5kHz</span>
-                <span>10kHz</span>
-                <span>20kHz</span>
-            `;
-            spectrumDisplayArea.appendChild(freqLabels);
-            
-            const spectrumControls = document.createElement('div');
-            spectrumControls.className = 'spectrum-controls';
-            spectrumControls.innerHTML = `
-                <div class="spectrum-mode-selector">
-                    <button class="spectrum-mode-btn active" data-mode="bars">BARS</button>
-                    <button class="spectrum-mode-btn" data-mode="line">LINE</button>
-                </div>
-                <div class="spectrum-info" id="spectrumInfo">
-                    PEAK: 0Hz | RMS: 0%
-                </div>
-            `;
-            spectrumDisplayArea.appendChild(spectrumControls);
-            
-            const ledMetersContainer = document.createElement('div');
-            ledMetersContainer.className = 'led-meters-container';
-            
-            const leftMeterWrapper = document.createElement('div');
-            leftMeterWrapper.innerHTML = `
-                <div class="led-meter-label">L</div>
-                <div class="led-meter" id="ledMeterLeft">
-                    ${Array.from({ length: 30 }, () => '<div class="led-segment"></div>').join('')}
-                </div>
-            `;
-            
-            const rightMeterWrapper = document.createElement('div');
-            rightMeterWrapper.innerHTML = `
-                <div class="led-meter-label">R</div>
-                <div class="led-meter" id="ledMeterRight">
-                    ${Array.from({ length: 30 }, () => '<div class="led-segment"></div>').join('')}
-                </div>
-            `;
-            
-            ledMetersContainer.appendChild(leftMeterWrapper);
-            ledMetersContainer.appendChild(rightMeterWrapper);
-            
-            spectrumContainer.appendChild(spectrumDisplayArea);
-            spectrumContainer.appendChild(ledMetersContainer);
-            outputGroup.content.appendChild(spectrumContainer);
-            outputContainer.appendChild(outputGroup.group);
-
-            this.resourceManager.setTimeout(() => {
-                this.spectrumAnalyzer = new WinAMPSpectrumAnalyzer(
-                    spectrumCanvas,
-                    this.grainVoiceManager.getAnalyser()
-                );
-                this._bindSpectrumEvents();
-                this._initializeLEDMeters();
-            }, CONSTANTS.SPECTRUM_ANALYZER_INIT_DELAY_MS);
-        }
-
-        _bindSpectrumEvents() {
-            this.domCache.querySelectorAll('.spectrum-mode-btn').forEach(btn => {
-                this.resourceManager.addEventListener(btn, 'click', (e) => {
-                    this.domCache.querySelectorAll('.spectrum-mode-btn').forEach(b => b.classList.remove('active'));
-                    e.target.classList.add('active');
-
-                    if (this.spectrumAnalyzer) {
-                        this.spectrumAnalyzer.setMode(e.target.dataset.mode);
-                    }
-                });
-            });
-
-            this._startSpectrumInfoUpdate();
-        }
-
-        _startSpectrumInfoUpdate() {
-            const updateInfo = () => {
-                if (this.spectrumAnalyzer && this.state.isPlaying) {
-                    const peakFreq = this.spectrumAnalyzer.getPeakFrequency();
-                    const rmsLevel = Math.round(this.spectrumAnalyzer.getRMSLevel() * 100);
-                    
-                    this.domCache.getElementById('spectrumInfo').textContent = 
-                        `PEAK: ${peakFreq}Hz | RMS: ${rmsLevel}%`;
-                    
-                    const display = this.domCache.getElementById('winampDisplay');
-                    if (rmsLevel > 0) {
-                        display.textContent = `♪ PLAYING - PEAK: ${peakFreq}Hz - RMS: ${rmsLevel}% - ENHANCED RANDOM CONTROLS ♪`;
-                    } else {
-                        display.textContent = 'MULTIGRAIN SPECTRUM ANALYZER v2.1 - ENHANCED RANDOM CONTROLS';
-                    }
-                }
-                
-                this.resourceManager.setTimeout(updateInfo, CONSTANTS.SPECTRUM_UPDATE_INTERVAL_MS);
-            };
-            updateInfo();
-        }
-
-        _initializeLEDMeters() {
-            this.ledMeterState = {
-                leftPeakHold: 0,
-                rightPeakHold: 0,
-                leftPeakHoldTime: 0,
-                rightPeakHoldTime: 0,
-                peakHoldDuration: CONSTANTS.LED_PEAK_HOLD_DURATION_MS,
-                leftSegments: this.domCache.querySelectorAll('#ledMeterLeft .led-segment'),
-                rightSegments: this.domCache.querySelectorAll('#ledMeterRight .led-segment'),
-                isRunning: false
-            };
-            
-            this.leftAnalysisData = new Uint8Array(this.grainVoiceManager.getLeftAnalyser().frequencyBinCount);
-            this.rightAnalysisData = new Uint8Array(this.grainVoiceManager.getRightAnalyser().frequencyBinCount);
-            
-            this._startLEDMeterLoop();
-        }
-
-        _startLEDMeterLoop() {
-            if (this.ledMeterState.isRunning) return;
-
-            this.ledMeterState.isRunning = true;
-
-            const updateLEDMeters = () => {
-                if (!this.ledMeterState.isRunning) return;
-
-                if (this.state.isPlaying && this.grainVoiceManager.getActiveVoiceCount() > 0) {
-                    this._updateTrueLRLEDDisplay();
-                } else {
-                    this._fadeLEDDisplay();
-                }
-
-                this.resourceManager.requestAnimationFrame(updateLEDMeters);
-            };
-
-            updateLEDMeters();
-        }
-
-        _stopLEDMeterLoop() {
-            this.ledMeterState.isRunning = false;
-            Logger.debug('LED meter loop stopped');
-        }
-
-        _updateTrueLRLEDDisplay() {
-            const leftAnalyser = this.grainVoiceManager.getLeftAnalyser();
-            const rightAnalyser = this.grainVoiceManager.getRightAnalyser();
-            
-            if (!leftAnalyser || !rightAnalyser) {
-                return;
-            }
-            
-            leftAnalyser.getByteFrequencyData(this.leftAnalysisData);
-            rightAnalyser.getByteFrequencyData(this.rightAnalysisData);
-            
-            let leftSum = 0;
-            for (let i = 0; i < this.leftAnalysisData.length; i++) {
-                leftSum += this.leftAnalysisData[i] * this.leftAnalysisData[i];
-            }
-            const leftRMS = Math.sqrt(leftSum / this.leftAnalysisData.length) / 255;
-            
-            let rightSum = 0;
-            for (let i = 0; i < this.rightAnalysisData.length; i++) {
-                rightSum += this.rightAnalysisData[i] * this.rightAnalysisData[i];
-            }
-            const rightRMS = Math.sqrt(rightSum / this.rightAnalysisData.length) / 255;
-            
-            const now = Date.now();
-            
-            if (leftRMS > this.ledMeterState.leftPeakHold) {
-                this.ledMeterState.leftPeakHold = leftRMS;
-                this.ledMeterState.leftPeakHoldTime = now;
-            } else if (now - this.ledMeterState.leftPeakHoldTime > this.ledMeterState.peakHoldDuration) {
-                this.ledMeterState.leftPeakHold *= CONSTANTS.SCALE_PEAK_HOLD_DECAY;
-            }
-
-            if (rightRMS > this.ledMeterState.rightPeakHold) {
-                this.ledMeterState.rightPeakHold = rightRMS;
-                this.ledMeterState.rightPeakHoldTime = now;
-            } else if (now - this.ledMeterState.rightPeakHoldTime > this.ledMeterState.peakHoldDuration) {
-                this.ledMeterState.rightPeakHold *= CONSTANTS.SCALE_PEAK_HOLD_DECAY;
-            }
-            
-            this._renderLEDChannel(this.ledMeterState.leftSegments, leftRMS, this.ledMeterState.leftPeakHold);
-            this._renderLEDChannel(this.ledMeterState.rightSegments, rightRMS, this.ledMeterState.rightPeakHold);
-        }
-
-        _renderLEDChannel(segments, currentLevel, peakLevel) {
-            const segmentCount = segments.length;
-            const currentSegments = Math.floor(currentLevel * segmentCount);
-            const peakSegment = Math.floor(peakLevel * segmentCount);
-
-            segments.forEach((segment, index) => {
-                segment.classList.remove('green', 'yellow', 'orange', 'red');
-
-                const isCurrentLit = index < currentSegments;
-                const isPeakLit = index === peakSegment && peakLevel > CONSTANTS.LED_PEAK_MIN_THRESHOLD;
-
-                if (isCurrentLit || isPeakLit) {
-                    if (index < segmentCount * CONSTANTS.LED_GREEN_THRESHOLD) {
-                        segment.classList.add('green');
-                    } else if (index < segmentCount * CONSTANTS.LED_YELLOW_THRESHOLD) {
-                        segment.classList.add('yellow');
-                    } else if (index < segmentCount * CONSTANTS.LED_ORANGE_THRESHOLD) {
-                        segment.classList.add('orange');
-                    } else {
-                        segment.classList.add('red');
-                    }
-                }
-            });
-        }
-
-        _fadeLEDDisplay() {
-            this.ledMeterState.leftPeakHold *= CONSTANTS.LED_FADE_FACTOR;
-            this.ledMeterState.rightPeakHold *= CONSTANTS.LED_FADE_FACTOR;
-
-            if (this.ledMeterState.leftPeakHold < CONSTANTS.LED_MIN_THRESHOLD) this.ledMeterState.leftPeakHold = 0;
-            if (this.ledMeterState.rightPeakHold < CONSTANTS.LED_MIN_THRESHOLD) this.ledMeterState.rightPeakHold = 0;
-
-            this._renderLEDChannel(this.ledMeterState.leftSegments, 0, this.ledMeterState.leftPeakHold);
-            this._renderLEDChannel(this.ledMeterState.rightSegments, 0, this.ledMeterState.rightPeakHold);
-        }
-
-        _createSlotMatrix(container) {
-            const slotMatrixContainer = document.createElement('div');
-            slotMatrixContainer.id = 'slotMatrix';
-            slotMatrixContainer.className = 'slot-matrix';
-            container.appendChild(slotMatrixContainer);
-            return slotMatrixContainer;
-        }
-
-        _createSequencer() {
-            const sequencerDiv = this.domCache.getElementById("sequencers");
-            const seqGroup = this._createPanelGroup('SEQ (TRG):', 'sequencer-content');
-
-            for (let s = 0; s < this.config.SLOTS; s++) {
-                const row = document.createElement("div");
-                row.className = "sequencer-row";
-                for (let i = 0; i < this.config.SEQUENCER_STEPS; i++) {
-                    const cell = document.createElement("div");
-                    cell.className = "step active";
-                    cell.textContent = i + 1;
-                    cell.dataset.slot = s;
-                    cell.dataset.step = i;
-                    row.appendChild(cell);
-                }
-                seqGroup.content.appendChild(row);
-            }
-
-            // ノブコントロールを追加
-            const knobsContainer = document.createElement('div');
-            knobsContainer.style.cssText = `
-                display: flex;
-                gap: 20px;
-                justify-content: center;
-                align-items: center;
-                margin-top: 15px;
-                padding: 10px;
-                background: linear-gradient(135deg, #e8e8e8, #d0d0d0);
-                border: 1px inset #808080;
-                border-radius: 3px;
-            `;
-
-            const randomDensityContainer = document.createElement('div');
-            randomDensityContainer.style.cssText = `text-align: center; position: relative;`;
-            randomDensityContainer.appendChild(this._createControlElement(this.config.RANDOM_DENSITY_SPEC));
-            
-            const bpmContainer = document.createElement('div');
-            bpmContainer.style.cssText = `text-align: center; position: relative;`;
-            bpmContainer.appendChild(this._createControlElement(this.config.BPM_SPEC));
-
-            knobsContainer.appendChild(randomDensityContainer);
-            knobsContainer.appendChild(bpmContainer);
-            seqGroup.content.appendChild(knobsContainer);
-
-            sequencerDiv.appendChild(seqGroup.group);
-        }
-
-        _createUtilSection() {
-            const container = this.domCache.getElementById('utilSectionContainer');
-            const utilGroup = this._createPanelGroup('UTIL:', 'util-content');
-            
-            utilGroup.content.innerHTML = `
-                <div class="load-input-group">
-                    <label>STR:</label>
-                    <input type="text" id="loadPathInput" placeholder="Filter by filename" class="form-element" value="">
-                    <button id="loadPathButton">Load</button>
-                </div>
-            `;
-            
-            const buttonsContainer = document.createElement('div');
-            buttonsContainer.className = 'util-buttons-container';
-            
-            buttonsContainer.innerHTML = `
-                <button id="startGranular">Start</button>
-                <button id="stopGranular">Stop</button>
-                <button id="randomizeSequencer" title="現在のDensity値でランダムシーケンスを生成">RND SEQ</button>
-                <button id="randomizeAllSlotParams">RND PRM</button>
-                <button id="clearPanButton">PAN(0)</button>
-                <button id="resetHpfButton">HPF(0)</button>
-                <button id="setHpf130Button">HPF(130)</button>
-                <button id="setHpf900Button">HPF(900)</button>
-                <button id="setAtk0Button">ATK(3)</button>
-                <button id="percButton">Perc</button>
-                <button id="unlockAllKnobsButton">🔓 UNLOCK ALL</button>
-                <button id="undoButton" disabled>UNDO</button>
-                <button id="redoButton" disabled>REDO</button>
-                <button id="togglePerfMonitor">PERF</button>
-                <span id="loadingStatus" style="margin-left: 10px; font-weight: bold; color: #000080;"></span>
-            `;
-            
-            utilGroup.content.appendChild(buttonsContainer);
-            container.appendChild(utilGroup.group);
-        }
-
-        _createPanelGroup(titleText, contentId) {
-            const group = document.createElement("div");
-            group.className = "panel-group";
-            
-            const sectionId = titleText.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() + '-section';
-            group.id = sectionId;
-            
-            const title = document.createElement("h3");
-            title.className = "group-title collapsible-header";
-            title.innerHTML = `${titleText}<span class="indicator">-</span>`;
-            const content = document.createElement('div');
-            content.id = contentId;
-            group.appendChild(title);
-            group.appendChild(content);
-            return { group, title, content };
-        }
-
-        _createControlElement(spec, slotIndex = null) {
-            const elementId = slotIndex !== null ? `${spec.id}-slot${slotIndex}` : spec.id;
-
-            switch (spec.type) {
-                case 'select':
-                    const label = document.createElement('label');
-                    label.textContent = spec.label;
-                    
-                    const inputElement = document.createElement('select');
-                    spec.options.forEach((opt, i) => {
-                        const option = document.createElement('option');
-                        option.value = i;
-                        option.textContent = opt;
-                        if (spec.selected === i) option.selected = true;
-                        inputElement.appendChild(option);
-                    });
-                    this.resourceManager.addEventListener(inputElement, 'change', () => this.saveCurrentState());
-                    inputElement.id = elementId;
-                    inputElement.className = 'form-element';
-                    label.appendChild(inputElement);
-                    return label;
-                    
-                case 'knob':
-                    const knobContainer = document.createElement('div');
-                    knobContainer.className = 'knob-container matrix-knob';
-                    
-                    // ツールチップがある場合は追加
-                    let tooltipAttr = '';
-                    if (spec.tooltip) {
-                        tooltipAttr = `title="${spec.tooltip}"`;
-                    }
-                    
-                    knobContainer.innerHTML = `
-                        <div class="knob" id="${elementId}Knob" ${tooltipAttr}>
-                            <div class="knob-face">
-                                <div class="knob-indicator" id="${elementId}Indicator"></div>
-                                <div class="knob-center"></div>
-                            </div>
-                        </div>
-                        <div id="${elementId}ValueDisplay" class="knob-value-display">${this._formatKnobValue(spec, spec.value)}</div>`;
-
+                if (spec.type === 'knob') {
                     this.resourceManager.setTimeout(() => {
-                        this._updateKnobDisplay(elementId, spec, spec.value);
-                        this._bindKnobEvents(elementId, spec, slotIndex);
+                        this._updateKnobDisplay(spec.id, spec, spec.value);
+                        this._bindKnobEvents(spec.id, spec, null);
                     }, 0);
-                    
-                    return knobContainer;
-                
-                default:
-                    const defaultLabel = document.createElement('label');
-                    defaultLabel.textContent = spec.label;
-                    
-                    const defaultInput = document.createElement('input');
-                    defaultInput.type = 'range';
-                    Object.assign(defaultInput, { min: spec.min, max: spec.max, step: spec.step || 1, value: spec.value });
-                    defaultInput.id = elementId;
-                    defaultInput.className = 'form-element';
-                    defaultLabel.appendChild(defaultInput);
-                    return defaultLabel;
-            }
-        }
+                }
+            });
 
-        _formatKnobValue(spec, value) {
-            if (spec.id === 'volume') {
-                const percentage = Math.round(value * 100);
-                const dbValue = value > 0 ? (20 * Math.log10(value)).toFixed(1) : '-∞';
-                return `${percentage}% (${dbValue}dB)`;
-            } else if (spec.id === 'playbackRate') {
-                const semitones = 12 * Math.log2(value);
-                const semitonesText = semitones >= 0 ? `+${semitones.toFixed(1)}` : semitones.toFixed(1);
-                return `${value.toFixed(2)} (${semitonesText}st)`;
-            } else if (spec.id === 'envelopeShape') {
-                const shapes = ['Linear', 'Exponential', 'Logarithmic', 'S-Curve', 'Cosine', 'Gaussian', 'Hanning', 'Triangular'];
-                return shapes[value] || 'Linear';
-            } else if (spec.id === 'lfoWaveform') {
-                const waveforms = ['Sine', 'Triangle', 'Square', 'Random'];
-                return waveforms[value] || 'Sine';
-            } else if (spec.id === 'panRandom') {
-                const percentage = Math.round(value * 100);
-                return `${percentage}% (±${(value * 100).toFixed(1)}%)`;
-            } else if (spec.id === 'randomDensity') {
-                const percentage = Math.round(value);
-                return `${percentage}% SEQ PROB`;
-            } else if (spec.id === 'bpm') {
-                const stepIntervalMs = (60 / value) * 1000 / 4;
-                return `${Math.round(value)} BPM (${stepIntervalMs.toFixed(1)}ms/step)`;
-            } else {
-                return parseFloat(value).toFixed(spec.step < 1 ? 2 : 0);
+            // Bind per-slot control knobs
+            for (let slot = 0; slot < this.config.SLOTS; slot++) {
+                this.config.PER_SLOT_CONTROL_SPECS.forEach(spec => {
+                    if (spec.type === 'knob') {
+                        const elementId = `${spec.id}-slot${slot}`;
+                        this.resourceManager.setTimeout(() => {
+                            this._updateKnobDisplay(elementId, spec, spec.value);
+                            this._bindKnobEvents(elementId, spec, slot);
+                        }, 0);
+                    }
+                });
             }
         }
 
@@ -779,7 +284,7 @@ export class OptimizedMultigrainPlayer {
             }
             
             if (display) {
-                display.textContent = this._formatKnobValue(spec, value);
+                display.textContent = this.uiBuilder.formatKnobValue(spec, value);
             }
         }
 
