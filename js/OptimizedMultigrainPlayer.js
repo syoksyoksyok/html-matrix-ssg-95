@@ -239,7 +239,7 @@ export class OptimizedMultigrainPlayer {
         }
 
         _createControls() {
-            const controlsContainer = document.getElementById('controls');
+            const controlsContainer = this.domCache.getElementById('controls');
 
             const modeGroup = this._createPanelGroup('MODE:', 'mode-content');
             this.config.GLOBAL_CONTROL_SPECS.forEach(spec => {
@@ -272,7 +272,7 @@ export class OptimizedMultigrainPlayer {
         }
 
         _createCtrlSection() {
-            const ctrlContainer = document.getElementById('ctrlSection');
+            const ctrlContainer = this.domCache.getElementById('ctrlSection');
             const ctrlGroup = this._createPanelGroup('CTRL:', 'ctrl-content');
 
             const slotMatrixContainer = this._createSlotMatrix(ctrlGroup.content);
@@ -325,7 +325,7 @@ export class OptimizedMultigrainPlayer {
         }
 
         _createOutputSection() {
-            const outputContainer = document.getElementById('outputSection');
+            const outputContainer = this.domCache.getElementById('outputSection');
             const outputGroup = this._createPanelGroup('OUTPUT:', 'output-content');
             
             const winampDisplay = document.createElement('div');
@@ -410,9 +410,9 @@ export class OptimizedMultigrainPlayer {
         }
 
         _bindSpectrumEvents() {
-            document.querySelectorAll('.spectrum-mode-btn').forEach(btn => {
+            this.domCache.querySelectorAll('.spectrum-mode-btn').forEach(btn => {
                 this.resourceManager.addEventListener(btn, 'click', (e) => {
-                    document.querySelectorAll('.spectrum-mode-btn').forEach(b => b.classList.remove('active'));
+                    this.domCache.querySelectorAll('.spectrum-mode-btn').forEach(b => b.classList.remove('active'));
                     e.target.classList.add('active');
 
                     if (this.spectrumAnalyzer) {
@@ -430,10 +430,10 @@ export class OptimizedMultigrainPlayer {
                     const peakFreq = this.spectrumAnalyzer.getPeakFrequency();
                     const rmsLevel = Math.round(this.spectrumAnalyzer.getRMSLevel() * 100);
                     
-                    document.getElementById('spectrumInfo').textContent = 
+                    this.domCache.getElementById('spectrumInfo').textContent = 
                         `PEAK: ${peakFreq}Hz | RMS: ${rmsLevel}%`;
                     
-                    const display = document.getElementById('winampDisplay');
+                    const display = this.domCache.getElementById('winampDisplay');
                     if (rmsLevel > 0) {
                         display.textContent = `♪ PLAYING - PEAK: ${peakFreq}Hz - RMS: ${rmsLevel}% - ENHANCED RANDOM CONTROLS ♪`;
                     } else {
@@ -453,8 +453,8 @@ export class OptimizedMultigrainPlayer {
                 leftPeakHoldTime: 0,
                 rightPeakHoldTime: 0,
                 peakHoldDuration: CONSTANTS.LED_PEAK_HOLD_DURATION_MS,
-                leftSegments: document.querySelectorAll('#ledMeterLeft .led-segment'),
-                rightSegments: document.querySelectorAll('#ledMeterRight .led-segment'),
+                leftSegments: this.domCache.querySelectorAll('#ledMeterLeft .led-segment'),
+                rightSegments: this.domCache.querySelectorAll('#ledMeterRight .led-segment'),
                 isRunning: false
             };
             
@@ -577,7 +577,7 @@ export class OptimizedMultigrainPlayer {
         }
 
         _createSequencer() {
-            const sequencerDiv = document.getElementById("sequencers");
+            const sequencerDiv = this.domCache.getElementById("sequencers");
             const seqGroup = this._createPanelGroup('SEQ (TRG):', 'sequencer-content');
 
             for (let s = 0; s < this.config.SLOTS; s++) {
@@ -624,7 +624,7 @@ export class OptimizedMultigrainPlayer {
         }
 
         _createUtilSection() {
-            const container = document.getElementById('utilSectionContainer');
+            const container = this.domCache.getElementById('utilSectionContainer');
             const utilGroup = this._createPanelGroup('UTIL:', 'util-content');
             
             utilGroup.content.innerHTML = `
@@ -769,8 +769,8 @@ export class OptimizedMultigrainPlayer {
         }
 
         _updateKnobDisplay(elementId, spec, value) {
-            const indicator = document.getElementById(`${elementId}Indicator`);
-            const display = document.getElementById(`${elementId}ValueDisplay`);
+            const indicator = this.domCache.getElementById(`${elementId}Indicator`, true);
+            const display = this.domCache.getElementById(`${elementId}ValueDisplay`, true);
             
             if (indicator) {
                 const normalizedValue = (value - spec.min) / (spec.max - spec.min);
@@ -784,7 +784,7 @@ export class OptimizedMultigrainPlayer {
         }
 
         _setKnobLocked(elementId, isLocked) {
-            const knobElement = document.getElementById(`${elementId}Knob`);
+            const knobElement = this.domCache.getElementById(`${elementId}Knob`, true);
             if (!knobElement) return;
 
             this.state.knobLockStates[elementId] = isLocked;
@@ -857,7 +857,7 @@ export class OptimizedMultigrainPlayer {
             });
             
             // ボタンの表示を更新
-            const button = document.querySelector(`[data-param="${paramId}"].param-lock-btn`);
+            const button = this.domCache.querySelector(`[data-param="${paramId}"].param-lock-btn`);
             if (button) {
                 if (shouldLock) {
                     button.classList.add('locked');
@@ -908,7 +908,7 @@ export class OptimizedMultigrainPlayer {
             }
             
             // 視覚的フィードバック
-            const buttons = document.querySelectorAll(`[data-param="${paramId}"].param-reset-btn`);
+            const buttons = this.domCache.querySelectorAll(`[data-param="${paramId}"].param-reset-btn`);
             buttons.forEach(button => {
                 button.classList.add('flash');
                 this.resourceManager.setTimeout(() => {
@@ -959,7 +959,7 @@ export class OptimizedMultigrainPlayer {
             }
             
             // 視覚的フィードバック
-            const buttons = document.querySelectorAll(`[data-param="${paramId}"]`);
+            const buttons = this.domCache.querySelectorAll(`[data-param="${paramId}"]`);
             buttons.forEach(button => {
                 button.classList.add('flash');
                 this.resourceManager.setTimeout(() => {
@@ -972,7 +972,7 @@ export class OptimizedMultigrainPlayer {
         }
 
         _bindKnobEvents(elementId, spec, slotIndex) {
-            const knobElement = document.getElementById(`${elementId}Knob`);
+            const knobElement = this.domCache.getElementById(`${elementId}Knob`, true);
             if (!knobElement) return;
 
             this.state.knobDragStates[elementId] = {
@@ -1130,7 +1130,7 @@ export class OptimizedMultigrainPlayer {
         }
 
         _setupCollapsibleHeaders() {
-            document.querySelectorAll('.collapsible-header').forEach(header => {
+            this.domCache.querySelectorAll('.collapsible-header').forEach(header => {
                 this.resourceManager.addEventListener(header, 'click', () => {
                     if (this.state.isFreeLayoutMode || header.classList.contains('no-collapse')) {
                         return;
@@ -1149,26 +1149,26 @@ export class OptimizedMultigrainPlayer {
 
         _bindEvents() {
             this.ui = {
-                startGranular: document.getElementById('startGranular'),
-                stopGranular: document.getElementById('stopGranular'),
-                randomizeSequencer: document.getElementById('randomizeSequencer'),
-                randomizeAllSlotParams: document.getElementById('randomizeAllSlotParams'),
-                clearPanButton: document.getElementById('clearPanButton'),
-                resetHpfButton: document.getElementById('resetHpfButton'),
-                setHpf130Button: document.getElementById('setHpf130Button'),
-                setHpf900Button: document.getElementById('setHpf900Button'),
-                setAtk0Button: document.getElementById('setAtk0Button'),
-                percButton: document.getElementById('percButton'),
-                unlockAllKnobsButton: document.getElementById('unlockAllKnobsButton'),
-                undoButton: document.getElementById('undoButton'),
-                redoButton: document.getElementById('redoButton'),
-                loadingStatus: document.getElementById('loadingStatus'),
-                bpmKnob: document.getElementById('bpmKnob'),
-                randomDensityKnob: document.getElementById('randomDensityKnob'),
-                loadPathButton: document.getElementById('loadPathButton'),
-                sequencerContainer: document.getElementById('sequencer-content'),
-                slotMatrix: document.getElementById('slotMatrix'),
-                togglePerfMonitor: document.getElementById('togglePerfMonitor'),
+                startGranular: this.domCache.getElementById('startGranular'),
+                stopGranular: this.domCache.getElementById('stopGranular'),
+                randomizeSequencer: this.domCache.getElementById('randomizeSequencer'),
+                randomizeAllSlotParams: this.domCache.getElementById('randomizeAllSlotParams'),
+                clearPanButton: this.domCache.getElementById('clearPanButton'),
+                resetHpfButton: this.domCache.getElementById('resetHpfButton'),
+                setHpf130Button: this.domCache.getElementById('setHpf130Button'),
+                setHpf900Button: this.domCache.getElementById('setHpf900Button'),
+                setAtk0Button: this.domCache.getElementById('setAtk0Button'),
+                percButton: this.domCache.getElementById('percButton'),
+                unlockAllKnobsButton: this.domCache.getElementById('unlockAllKnobsButton'),
+                undoButton: this.domCache.getElementById('undoButton'),
+                redoButton: this.domCache.getElementById('redoButton'),
+                loadingStatus: this.domCache.getElementById('loadingStatus'),
+                bpmKnob: this.domCache.getElementById('bpmKnob'),
+                randomDensityKnob: this.domCache.getElementById('randomDensityKnob'),
+                loadPathButton: this.domCache.getElementById('loadPathButton'),
+                sequencerContainer: this.domCache.getElementById('sequencer-content'),
+                slotMatrix: this.domCache.getElementById('slotMatrix'),
+                togglePerfMonitor: this.domCache.getElementById('togglePerfMonitor'),
             };
 
             this.resourceManager.addEventListener(this.ui.startGranular, 'click', () => this.startGranularPlayback());
@@ -1206,10 +1206,10 @@ export class OptimizedMultigrainPlayer {
             });
 
             for (let s = 0; s < this.config.SLOTS; s++) {
-                const fileInput = document.getElementById(`hiddenFileInput-slot${s}`);
+                const fileInput = this.domCache.getElementById(`hiddenFileInput-slot${s}`);
                 this.resourceManager.addEventListener(fileInput, 'change', e => this._handleFileLoad(e));
 
-                const canvas = document.getElementById(`waveform-${s}`);
+                const canvas = this.domCache.getElementById(`waveform-${s}`);
                 this.resourceManager.addEventListener(canvas, 'mousedown', (e) => this._onWaveformPlaybackStart(e, s));
                 this.resourceManager.addEventListener(canvas, 'mouseup', (e) => this._onWaveformPlaybackStop(e, s));
                 this.resourceManager.addEventListener(canvas, 'mouseleave', (e) => this._onWaveformPlaybackStop(e, s));
@@ -1226,7 +1226,7 @@ export class OptimizedMultigrainPlayer {
                  if (slotLabel && !e.target.closest('.slot-controls-container')) {
                      const slot = slotLabel.dataset.slot;
                      if (slot !== undefined) {
-                         document.getElementById(`hiddenFileInput-slot${slot}`).click();
+                         this.domCache.getElementById(`hiddenFileInput-slot${slot}`).click();
                      }
                  }
                  if (e.target.classList.contains('slot-control-btn')) {
@@ -1242,8 +1242,8 @@ export class OptimizedMultigrainPlayer {
         }
 
         _initializeDragAndDrop() {
-            const layoutToggle = document.getElementById('layoutToggle');
-            const autoArrangeBtn = document.getElementById('autoArrangeBtn');
+            const layoutToggle = this.domCache.getElementById('layoutToggle');
+            const autoArrangeBtn = this.domCache.getElementById('autoArrangeBtn');
 
             this.resourceManager.addEventListener(layoutToggle, 'click', () => this._toggleLayoutMode());
             this.resourceManager.addEventListener(autoArrangeBtn, 'click', () => this._autoArrangePanels());
@@ -1270,7 +1270,7 @@ export class OptimizedMultigrainPlayer {
         _autoArrangePanels() {
             if (!this.state.isFreeLayoutMode) return;
             
-            const sections = document.querySelectorAll('.panel-group.draggable');
+            const sections = this.domCache.querySelectorAll('.panel-group.draggable', true);
             if (sections.length === 0) return;
             
             // ビューポートサイズを取得
@@ -1451,7 +1451,7 @@ export class OptimizedMultigrainPlayer {
         }
 
         _enableFreeLayout() {
-            const sections = document.querySelectorAll('.panel-group');
+            const sections = this.domCache.querySelectorAll('.panel-group', true);
             sections.forEach((section, index) => {
                 section.classList.add('draggable');
                 
@@ -1510,7 +1510,7 @@ export class OptimizedMultigrainPlayer {
         }
 
         _disableFreeLayout() {
-            const sections = document.querySelectorAll('.panel-group');
+            const sections = this.domCache.querySelectorAll('.panel-group', true);
             sections.forEach(section => {
                 this.state.sectionPositions[section.id] = {
                     x: parseInt(section.style.left) || 0,
@@ -1607,7 +1607,7 @@ export class OptimizedMultigrainPlayer {
             
             const viewportWidth = window.innerWidth;
             const viewportHeight = window.innerHeight;
-            const sections = document.querySelectorAll('.panel-group.draggable');
+            const sections = this.domCache.querySelectorAll('.panel-group.draggable', true);
             
             if (sections.length === 0) return;
             
@@ -1849,7 +1849,7 @@ export class OptimizedMultigrainPlayer {
             const newX = clientX - this.state.dragState.offsetX;
             const newY = clientY - this.state.dragState.offsetY;
             
-            const container = document.getElementById('layoutContainer');
+            const container = this.domCache.getElementById('layoutContainer');
             const containerRect = container.getBoundingClientRect();
             const element = this.state.dragState.currentElement;
             const elementRect = element.getBoundingClientRect();
@@ -2244,7 +2244,7 @@ export class OptimizedMultigrainPlayer {
         }
 
         _updateSequencerSelection() {
-            document.querySelectorAll('.step.selected, .step.multi-selected').forEach(element => {
+            this.domCache.querySelectorAll('.step.selected, .step.multi-selected', true).forEach(element => {
                 element.classList.remove('selected', 'multi-selected');
             });
 
@@ -2253,7 +2253,7 @@ export class OptimizedMultigrainPlayer {
                 const end = Math.max(this.state.multiSelectStart, this.state.multiSelectEnd);
                 
                 for (let step = start; step <= end; step++) {
-                    const stepElement = document.querySelector(
+                    const stepElement = this.domCache.querySelector(
                         `.step[data-slot='${this.state.selectedSlot}'][data-step='${step}']`
                     );
                     if (stepElement) {
@@ -2261,7 +2261,7 @@ export class OptimizedMultigrainPlayer {
                     }
                 }
             } else {
-                const selectedElement = document.querySelector(
+                const selectedElement = this.domCache.querySelector(
                     `.step[data-slot='${this.state.selectedSlot}'][data-step='${this.state.selectedStep}']`
                 );
                 if (selectedElement) {
@@ -2300,7 +2300,7 @@ export class OptimizedMultigrainPlayer {
 
                 this.state.audioBuffers[slot] = decoded;
                 this.state.waveformRenderers[slot].drawWaveform(decoded);
-                document.getElementById(`fileName-slot${slot}`).textContent = file.name;
+                this.domCache.getElementById(`fileName-slot${slot}`).textContent = file.name;
                 this.saveCurrentState();
 
                 Logger.log(`✅ Slot ${slot}: ${file.name} loaded successfully`);
@@ -2383,8 +2383,8 @@ export class OptimizedMultigrainPlayer {
         }
 
         _updateSlotControlButtons(slot) {
-            const soloBtn = document.getElementById(`soloBtn-${slot}`);
-            const muteBtn = document.getElementById(`muteBtn-${slot}`);
+            const soloBtn = this.domCache.getElementById(`soloBtn-${slot}`);
+            const muteBtn = this.domCache.getElementById(`muteBtn-${slot}`);
             
             if (this.state.slotSoloStatus[slot]) {
                 soloBtn.classList.add('solo-active');
@@ -2489,7 +2489,7 @@ export class OptimizedMultigrainPlayer {
                         this.state.waveformRenderers[s].drawWaveform(buffer);
                     } else {
                         this.state.waveformRenderers[s].ctx.clearRect(0, 0, this.state.waveformRenderers[s].canvas.width, this.state.waveformRenderers[s].canvas.height);
-                        document.getElementById(`fileName-slot${s}`).textContent = '';
+                        this.domCache.getElementById(`fileName-slot${s}`).textContent = '';
                     }
                 }
             } catch (error) {
@@ -2610,11 +2610,11 @@ export class OptimizedMultigrainPlayer {
         }
         
         _updateStepUI() {
-            const currentSteps = document.querySelectorAll('.step.current');
+            const currentSteps = this.domCache.querySelectorAll('.step.current', true);
             currentSteps.forEach(step => step.classList.remove('current'));
             
             if (this.state.isPlaying) {
-                const newCurrentSteps = document.querySelectorAll(`.step[data-step='${this.state.currentSequencerStep}']`);
+                const newCurrentSteps = this.domCache.querySelectorAll(`.step[data-step='${this.state.currentSequencerStep}']`, true);
                 newCurrentSteps.forEach(step => step.classList.add('current'));
             }
         }
@@ -2845,7 +2845,7 @@ export class OptimizedMultigrainPlayer {
                 const dirHandle = await window.showDirectoryPicker();
                 let allFileHandles = await this._getAllAudioFilesRecursive(dirHandle);
 
-                const filterString = document.getElementById('loadPathInput').value.toLowerCase().trim();
+                const filterString = this.domCache.getElementById('loadPathInput').value.toLowerCase().trim();
                 if (filterString) {
                     allFileHandles = allFileHandles.filter(handle => handle.name.toLowerCase().includes(filterString));
                 }
@@ -2859,7 +2859,7 @@ export class OptimizedMultigrainPlayer {
                     this.state.audioBuffers[s] = null;
                     this.state.waveformRenderers[s].invalidateCache();
                     this.state.waveformRenderers[s].ctx.clearRect(0, 0, this.config.WAVEFORM_CANVAS_WIDTH, this.config.WAVEFORM_CANVAS_HEIGHT);
-                    document.getElementById(`fileName-slot${s}`).textContent = '';
+                    this.domCache.getElementById(`fileName-slot${s}`).textContent = '';
                 }
 
                 for (let i = allFileHandles.length - 1; i > 0; i--) {
@@ -2923,7 +2923,7 @@ export class OptimizedMultigrainPlayer {
                 // Store buffer and update UI
                 this.state.audioBuffers[slotIndex] = trimmedBuffer;
                 this.state.waveformRenderers[slotIndex].drawWaveform(trimmedBuffer);
-                document.getElementById(`fileName-slot${slotIndex}`).textContent = file.name;
+                this.domCache.getElementById(`fileName-slot${slotIndex}`).textContent = file.name;
 
                 Logger.log(`✅ Slot ${slotIndex}: ${file.name} processed successfully`);
             } catch (error) {
@@ -2934,7 +2934,7 @@ export class OptimizedMultigrainPlayer {
                     this.state.audioBuffers[slotIndex] = null;
                 }
 
-                const fileNameElement = document.getElementById(`fileName-slot${slotIndex}`);
+                const fileNameElement = this.domCache.getElementById(`fileName-slot${slotIndex}`);
                 if (fileNameElement) {
                     fileNameElement.textContent = 'Error!';
                 }
@@ -2945,7 +2945,7 @@ export class OptimizedMultigrainPlayer {
             const collapsedStates = {};
             
             if (!this.state.isFreeLayoutMode) {
-                document.querySelectorAll('.panel-group').forEach(panel => {
+                this.domCache.querySelectorAll('.panel-group', true).forEach(panel => {
                     const content = panel.querySelector('[id$="-content"]');
                     if (content) {
                         collapsedStates[panel.id] = content.classList.contains('collapsed-content');
@@ -3006,7 +3006,7 @@ export class OptimizedMultigrainPlayer {
                 this.state.knobLockStates = deepClone(state.knobLockStates);
                 
                 Object.entries(this.state.knobLockStates).forEach(([elementId, isLocked]) => {
-                    const knobElement = document.getElementById(`${elementId}Knob`);
+                    const knobElement = this.domCache.getElementById(`${elementId}Knob`, true);
                     if (knobElement) {
                         if (isLocked) {
                             knobElement.classList.add('locked');
@@ -3022,7 +3022,7 @@ export class OptimizedMultigrainPlayer {
             
             if (!this.state.isFreeLayoutMode && state.collapsedStates) {
                 Object.entries(state.collapsedStates).forEach(([panelId, isCollapsed]) => {
-                    const panel = document.getElementById(panelId);
+                    const panel = this.domCache.getElementById(panelId, true);
                     if (panel) {
                         const content = panel.querySelector('[id$="-content"]');
                         const indicator = panel.querySelector('.indicator');
@@ -3127,10 +3127,48 @@ export class OptimizedMultigrainPlayer {
          */
         _prefetchDOMElements() {
             const elementsToCache = {
+                // Main containers
+                controls: { type: 'id', value: 'controls' },
+                ctrlSection: { type: 'id', value: 'ctrlSection' },
+                outputSection: { type: 'id', value: 'outputSection' },
+                sequencers: { type: 'id', value: 'sequencers' },
+                utilSectionContainer: { type: 'id', value: 'utilSectionContainer' },
+
                 // Layout
                 layoutContainer: { type: 'id', value: 'layoutContainer' },
                 layoutToggle: { type: 'id', value: 'layoutToggle' },
                 autoArrangeBtn: { type: 'id', value: 'autoArrangeBtn' },
+
+                // Control buttons
+                startGranular: { type: 'id', value: 'startGranular' },
+                stopGranular: { type: 'id', value: 'stopGranular' },
+                randomizeSequencer: { type: 'id', value: 'randomizeSequencer' },
+                randomizeAllSlotParams: { type: 'id', value: 'randomizeAllSlotParams' },
+                clearPanButton: { type: 'id', value: 'clearPanButton' },
+                resetHpfButton: { type: 'id', value: 'resetHpfButton' },
+                setHpf130Button: { type: 'id', value: 'setHpf130Button' },
+                setHpf900Button: { type: 'id', value: 'setHpf900Button' },
+                setAtk0Button: { type: 'id', value: 'setAtk0Button' },
+                percButton: { type: 'id', value: 'percButton' },
+                unlockAllKnobsButton: { type: 'id', value: 'unlockAllKnobsButton' },
+                undoButton: { type: 'id', value: 'undoButton' },
+                redoButton: { type: 'id', value: 'redoButton' },
+                loadingStatus: { type: 'id', value: 'loadingStatus' },
+                loadPathButton: { type: 'id', value: 'loadPathButton' },
+                loadPathInput: { type: 'id', value: 'loadPathInput' },
+                togglePerfMonitor: { type: 'id', value: 'togglePerfMonitor' },
+
+                // Knobs
+                bpmKnob: { type: 'id', value: 'bpmKnob' },
+                randomDensityKnob: { type: 'id', value: 'randomDensityKnob' },
+
+                // Spectrum analyzer
+                spectrumInfo: { type: 'id', value: 'spectrumInfo' },
+                winampDisplay: { type: 'id', value: 'winampDisplay' },
+
+                // Sequencer
+                sequencerContent: { type: 'id', value: 'sequencer-content' },
+                slotMatrix: { type: 'id', value: 'slotMatrix' },
 
                 // Controls
                 slotMode: { type: 'id', value: 'slotMode' },
@@ -3143,6 +3181,30 @@ export class OptimizedMultigrainPlayer {
                     Array.from({ length: this.config.SLOTS }, (_, i) => [
                         `fileName-slot${i}`,
                         { type: 'id', value: `fileName-slot${i}` }
+                    ])
+                ),
+                ...Object.fromEntries(
+                    Array.from({ length: this.config.SLOTS }, (_, i) => [
+                        `hiddenFileInput-slot${i}`,
+                        { type: 'id', value: `hiddenFileInput-slot${i}` }
+                    ])
+                ),
+                ...Object.fromEntries(
+                    Array.from({ length: this.config.SLOTS }, (_, i) => [
+                        `waveform-${i}`,
+                        { type: 'id', value: `waveform-${i}` }
+                    ])
+                ),
+                ...Object.fromEntries(
+                    Array.from({ length: this.config.SLOTS }, (_, i) => [
+                        `soloBtn-${i}`,
+                        { type: 'id', value: `soloBtn-${i}` }
+                    ])
+                ),
+                ...Object.fromEntries(
+                    Array.from({ length: this.config.SLOTS }, (_, i) => [
+                        `muteBtn-${i}`,
+                        { type: 'id', value: `muteBtn-${i}` }
                     ])
                 )
             };
