@@ -11,6 +11,8 @@ import { generateRandomValue } from './utils/mathUtils.js';
 import { calculateNormalizedSensitivity } from './utils/knobUtils.js';
 import { DOMCache } from './utils/DOMCache.js';
 import { StateManager } from './utils/StateManager.js';
+import { SequencerController } from './controllers/SequencerController.js';
+import { LayoutManager } from './controllers/LayoutManager.js';
 
 // Constants
 const CONSTANTS = {
@@ -86,6 +88,8 @@ export class OptimizedMultigrainPlayer {
                 this.resourceManager = new ResourceManager();
                 this.domCache = new DOMCache();
                 this.stateManager = new StateManager(50); // 50 states max
+                this.sequencerController = null; // Initialize after config
+                this.layoutManager = null; // Initialize after config
             
             this.config = {
                 SLOTS: 4,
@@ -153,23 +157,8 @@ export class OptimizedMultigrainPlayer {
                 isMKeyPressed: false,
                 isOKeyPressed: false,
                 autoScalingActive: false,
-                baseViewportSize: { width: 0, height: 0 },
-                dragState: {
-                    isDragging: false,
-                    currentElement: null,
-                    startX: 0,
-                    startY: 0,
-                    offsetX: 0,
-                    offsetY: 0
-                },
-                resizeState: {
-                    isResizing: false,
-                    currentElement: null,
-                    startX: 0,
-                    startY: 0,
-                    startWidth: 0,
-                    startHeight: 0
-                }
+                baseViewportSize: { width: 0, height: 0 }
+                // dragState and resizeState are now managed by LayoutManager
             };
 
             this.ui = {};
@@ -181,6 +170,13 @@ export class OptimizedMultigrainPlayer {
 
         init() {
             try {
+                // Initialize controllers
+                this.sequencerController = new SequencerController(this.config, this.domCache);
+                this.sequencerController.initializePatterns(this.state.sequencerPatterns);
+
+                this.layoutManager = new LayoutManager(this.resourceManager);
+                this.layoutManager.setFreeLayoutMode(this.state.isFreeLayoutMode);
+
                 this._createUI();
                 this._bindEvents();
                 this._updateBpmKnob(this.state.tempoBpm);
@@ -1248,31 +1244,26 @@ export class OptimizedMultigrainPlayer {
         _initializeDragAndDrop() {
             const layoutToggle = document.getElementById('layoutToggle');
             const autoArrangeBtn = document.getElementById('autoArrangeBtn');
-            
+
             this.resourceManager.addEventListener(layoutToggle, 'click', () => this._toggleLayoutMode());
             this.resourceManager.addEventListener(autoArrangeBtn, 'click', () => this._autoArrangePanels());
-            
-            this._setupSectionDragging();
+
+            // LayoutManager already registers drag/resize listeners in its constructor
+            // No need to call _setupSectionDragging() here
         }
 
         _toggleLayoutMode() {
+            // Toggle state
             this.state.isFreeLayoutMode = !this.state.isFreeLayoutMode;
-            const layoutContainer = document.getElementById('layoutContainer');
-            const layoutToggle = document.getElementById('layoutToggle');
-            const autoArrangeBtn = document.getElementById('autoArrangeBtn');
-            
+
+            // Delegate to LayoutManager
+            this.layoutManager.setFreeLayoutMode(this.state.isFreeLayoutMode);
+
+            // Additional setup for free/normal layout
             if (this.state.isFreeLayoutMode) {
-                layoutContainer.classList.add('free-layout');
-                layoutToggle.textContent = '📐 NORMAL LAYOUT';
-                autoArrangeBtn.classList.add('show');
                 this._enableFreeLayout();
-                Logger.log('🎛️ Switched to FREE LAYOUT mode with auto-scaling');
             } else {
-                layoutContainer.classList.remove('free-layout');
-                layoutToggle.textContent = '📐 FREE LAYOUT';
-                autoArrangeBtn.classList.remove('show');
                 this._disableFreeLayout();
-                Logger.log('🎛️ Switched to NORMAL LAYOUT mode');
             }
         }
 
@@ -1609,7 +1600,8 @@ export class OptimizedMultigrainPlayer {
         }
 
         _adjustSectionsToViewport() {
-            if (this.state.dragState.isDragging || this.state.resizeState.isResizing) {
+            // Check if user is currently dragging or resizing via LayoutManager
+            if (this.layoutManager.getStatus().isInteracting) {
                 return;
             }
             
@@ -2236,19 +2228,19 @@ export class OptimizedMultigrainPlayer {
         }
 
         _toggleSequencerStep(slot, step) {
-            this.state.sequencerPatterns[slot][step] = !this.state.sequencerPatterns[slot][step];
-            const stepElement = document.querySelector(`.step[data-slot='${slot}'][data-step='${step}']`);
-            if (stepElement) {
-                stepElement.classList.toggle("active", this.state.sequencerPatterns[slot][step]);
-            }
+            // Delegate to SequencerController
+            this.sequencerController.toggleStep(slot, step);
+
+            // Sync state
+            this.state.sequencerPatterns = this.sequencerController.getPatterns();
         }
 
         _setSequencerStep(slot, step, isActive) {
-            this.state.sequencerPatterns[slot][step] = isActive;
-            const stepElement = document.querySelector(`.step[data-slot='${slot}'][data-step='${step}']`);
-            if (stepElement) {
-                stepElement.classList.toggle("active", isActive);
-            }
+            // Delegate to SequencerController
+            this.sequencerController.setStep(slot, step, isActive);
+
+            // Sync state
+            this.state.sequencerPatterns = this.sequencerController.getPatterns();
         }
 
         _updateSequencerSelection() {
@@ -2324,8 +2316,12 @@ export class OptimizedMultigrainPlayer {
         _handleStepClick(cell) {
             const slot = +cell.dataset.slot;
             const step = +cell.dataset.step;
-            this.state.sequencerPatterns[slot][step] = !this.state.sequencerPatterns[slot][step];
-            cell.classList.toggle("active", this.state.sequencerPatterns[slot][step]);
+
+            // Delegate to SequencerController
+            this.sequencerController.toggleStep(slot, step);
+
+            // Sync state
+            this.state.sequencerPatterns = this.sequencerController.getPatterns();
             this.saveCurrentState();
         }
 
@@ -2517,7 +2513,7 @@ export class OptimizedMultigrainPlayer {
 
                 targetSlots.forEach(s => {
                     if (this.state.audioBuffers[s] &&
-                        this.state.sequencerPatterns[s][this.state.currentSequencerStep] &&
+                        this.sequencerController.getStep(s, this.state.currentSequencerStep) &&
                         this._isSlotActiveForPlayback(s)) {
                         this._triggerGrainForSlot(s);
                     }
@@ -2654,19 +2650,11 @@ export class OptimizedMultigrainPlayer {
         }
 
         randomizeSequencer() {
-            const threshold = this._getKnobValue('randomDensity') / 100;
-            let generatedSteps = 0;
-            
-            for (let slot = 0; slot < this.config.SLOTS; slot++) {
-                for (let i = 0; i < this.config.SEQUENCER_STEPS; i++) {
-                    const on = Math.random() < threshold;
-                    this.state.sequencerPatterns[slot][i] = on;
-                    document.querySelector(`.step[data-slot='${slot}'][data-step='${i}']`)?.classList.toggle('active', on);
-                    if (on) generatedSteps++;
-                }
-            }
-            
-            Logger.log(`🎲 ランダムシーケンス生成: ${Math.round(threshold * 100)}% Density → ${generatedSteps}/${this.config.SLOTS * this.config.SEQUENCER_STEPS} ステップON`);
+            const density = this._getKnobValue('randomDensity');
+            this.sequencerController.randomizeSequencer(density);
+
+            // Sync state
+            this.state.sequencerPatterns = this.sequencerController.getPatterns();
             this.saveCurrentState();
         }
 
@@ -3000,10 +2988,14 @@ export class OptimizedMultigrainPlayer {
                 }
             });
 
-            this.state.sequencerPatterns = deepClone(state.sequencerPatterns);
+            // Delegate to SequencerController
+            this.sequencerController.initializePatterns(state.sequencerPatterns);
+            this.state.sequencerPatterns = this.sequencerController.getPatterns();
+
+            // Update DOM for all sequencer steps
             this.state.sequencerPatterns.forEach((pattern, slot) => {
                 pattern.forEach((isActive, step) => {
-                    document.querySelector(`.step[data-slot='${slot}'][data-step='${step}']`)?.classList.toggle("active", isActive);
+                    this.sequencerController.setStep(slot, step, isActive);
                 });
             });
 
