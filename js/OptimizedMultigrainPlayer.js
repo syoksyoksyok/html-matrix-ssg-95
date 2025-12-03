@@ -14,6 +14,9 @@ import { DOMCache } from './utils/DOMCache.js';
 import { StateManager } from './utils/StateManager.js';
 import { SequencerController } from './controllers/SequencerController.js';
 import { LayoutManager } from './controllers/LayoutManager.js';
+import { ParameterController } from './controllers/ParameterController.js';
+import { KeyboardController } from './controllers/KeyboardController.js';
+import { FileLoaderController } from './controllers/FileLoaderController.js';
 
 // Constants
 const CONSTANTS = {
@@ -91,6 +94,9 @@ export class OptimizedMultigrainPlayer {
                 this.stateManager = new StateManager(50); // 50 states max
                 this.sequencerController = null; // Initialize after config
                 this.layoutManager = null; // Initialize after config
+                this.parameterController = null; // Initialize after config
+                this.keyboardController = null; // Initialize after config
+                this.fileLoaderController = null; // Initialize after config
             
             this.config = {
                 SLOTS: 4,
@@ -178,6 +184,57 @@ export class OptimizedMultigrainPlayer {
                 this.layoutManager = new LayoutManager(this.resourceManager);
                 this.layoutManager.setFreeLayoutMode(this.state.isFreeLayoutMode);
 
+                // Initialize ParameterController
+                this.parameterController = new ParameterController(
+                    this.config,
+                    this.domCache,
+                    this.resourceManager,
+                    this.state.knobDragStates,
+                    this.state.knobLockStates,
+                    {
+                        updateKnobDisplay: this._updateKnobDisplay.bind(this),
+                        saveCurrentState: this.saveCurrentState.bind(this),
+                        randomizeSequencer: () => {
+                            const density = this.parameterController.getKnobValue('randomDensity');
+                            this.sequencerController.randomizeSequencer(density);
+                        }
+                    }
+                );
+
+                // Initialize KeyboardController
+                this.keyboardController = new KeyboardController(
+                    this.config,
+                    this.domCache,
+                    this.resourceManager,
+                    this.state,
+                    {
+                        undo: this.undo.bind(this),
+                        redo: this.redo.bind(this),
+                        loadFolderSamples: () => this.fileLoaderController.loadFolderSamples(this.ui),
+                        startGranularPlayback: this.startGranularPlayback.bind(this),
+                        stopGranularPlayback: this.stopGranularPlayback.bind(this),
+                        stopAllGrains: this.stopAllGrains.bind(this),
+                        toggleSequencerStep: this._toggleSequencerStep.bind(this),
+                        setSequencerStep: this._setSequencerStep.bind(this),
+                        updateAllSlotControlButtons: this._updateAllSlotControlButtons.bind(this),
+                        updateSlotControlButtons: this._updateSlotControlButtons.bind(this),
+                        saveCurrentState: this.saveCurrentState.bind(this)
+                    }
+                );
+
+                // Initialize FileLoaderController
+                this.fileLoaderController = new FileLoaderController(
+                    this.config,
+                    this.domCache,
+                    this.audioContext,
+                    this.state,
+                    {
+                        saveCurrentState: this.saveCurrentState.bind(this),
+                        showErrorNotification: this._showErrorNotification.bind(this),
+                        updateUI: () => {} // Can be extended if needed
+                    }
+                );
+
                 this._createUI();
                 this._bindKnobEventsForAllControls();
                 this._bindEvents();
@@ -254,7 +311,7 @@ export class OptimizedMultigrainPlayer {
                 if (spec.type === 'knob') {
                     this.resourceManager.setTimeout(() => {
                         this._updateKnobDisplay(spec.id, spec, spec.value);
-                        this._bindKnobEvents(spec.id, spec, null);
+                        this.parameterController.bindKnobEvents(spec.id, spec, null);
                     }, 0);
                 }
             });
@@ -266,7 +323,7 @@ export class OptimizedMultigrainPlayer {
                         const elementId = `${spec.id}-slot${slot}`;
                         this.resourceManager.setTimeout(() => {
                             this._updateKnobDisplay(elementId, spec, spec.value);
-                            this._bindKnobEvents(elementId, spec, slot);
+                            this.parameterController.bindKnobEvents(elementId, spec, slot);
                         }, 0);
                     }
                 });
@@ -286,352 +343,6 @@ export class OptimizedMultigrainPlayer {
             if (display) {
                 display.textContent = this.uiBuilder.formatKnobValue(spec, value);
             }
-        }
-
-        _setKnobLocked(elementId, isLocked) {
-            const knobElement = this.domCache.getElementById(`${elementId}Knob`, true);
-            if (!knobElement) return;
-
-            this.state.knobLockStates[elementId] = isLocked;
-            
-            if (isLocked) {
-                knobElement.classList.add('locked');
-            } else {
-                knobElement.classList.remove('locked');
-            }
-            
-            this.saveCurrentState();
-        }
-
-        _isKnobLocked(elementId) {
-            return this.state.knobLockStates[elementId] || false;
-        }
-
-        _unlockAllKnobs() {
-            let unlockedCount = 0;
-            
-            for (let s = 0; s < this.config.SLOTS; s++) {
-                this.config.PER_SLOT_CONTROL_SPECS.forEach(spec => {
-                    const elementId = `${spec.id}-slot${s}`;
-                    if (this._isKnobLocked(elementId)) {
-                        this._setKnobLocked(elementId, false);
-                        unlockedCount++;
-                    }
-                });
-            }
-            
-            const globalKnobs = ['bpm', 'randomDensity'];
-            globalKnobs.forEach(knobId => {
-                if (this._isKnobLocked(knobId)) {
-                    this._setKnobLocked(knobId, false);
-                    unlockedCount++;
-                }
-            });
-            
-            if (unlockedCount > 0) {
-                Logger.log(`🔓 Unlocked ${unlockedCount} knobs`);
-            }
-        }
-
-        _toggleParameterLock(paramId) {
-            const spec = this.config.PER_SLOT_CONTROL_SPECS.find(s => s.id === paramId);
-            if (!spec) return;
-            
-            // 全スロットの現在のロック状態を確認
-            const elementIds = [];
-            let lockedCount = 0;
-            
-            for (let slot = 0; slot < this.config.SLOTS; slot++) {
-                const elementId = `${paramId}-slot${slot}`;
-                elementIds.push(elementId);
-                if (this._isKnobLocked(elementId)) {
-                    lockedCount++;
-                }
-            }
-            
-            // 全てロック済みならアンロック、そうでなければ全てロック
-            const shouldLock = lockedCount < this.config.SLOTS;
-            let changedCount = 0;
-            
-            elementIds.forEach(elementId => {
-                const currentLockState = this._isKnobLocked(elementId);
-                if (currentLockState !== shouldLock) {
-                    this._setKnobLocked(elementId, shouldLock);
-                    changedCount++;
-                }
-            });
-            
-            // ボタンの表示を更新
-            const button = this.domCache.querySelector(`[data-param="${paramId}"].param-lock-btn`);
-            if (button) {
-                if (shouldLock) {
-                    button.classList.add('locked');
-                } else {
-                    button.classList.remove('locked');
-                }
-                
-                // 視覚的フィードバック
-                button.classList.add('flash');
-                this.resourceManager.setTimeout(() => {
-                    button.classList.remove('flash');
-                }, 300);
-            }
-            
-            const action = shouldLock ? 'locked' : 'unlocked';
-            Logger.log(`🔒 ${spec.label} ${action} for ${changedCount}/${this.config.SLOTS} slots`);
-            
-            // 状態変更があった場合のみ履歴に保存
-            if (changedCount > 0) {
-                this.saveCurrentState();
-            }
-        }
-
-        _resetParameter(paramId) {
-            const spec = this.config.PER_SLOT_CONTROL_SPECS.find(s => s.id === paramId);
-            if (!spec) return;
-            
-            let resetCount = 0;
-            let lockedCount = 0;
-            
-            for (let slot = 0; slot < this.config.SLOTS; slot++) {
-                const elementId = `${paramId}-slot${slot}`;
-                
-                if (this._isKnobLocked(elementId)) {
-                    lockedCount++;
-                    continue;
-                }
-                
-                // 各パラメータのデフォルト値にリセット
-                const defaultValue = spec.value;
-                
-                if (this.state.knobDragStates[elementId]) {
-                    this.state.knobDragStates[elementId].currentValue = defaultValue;
-                }
-                
-                this._updateKnobDisplay(elementId, spec, defaultValue);
-                resetCount++;
-            }
-            
-            // 視覚的フィードバック
-            const buttons = this.domCache.querySelectorAll(`[data-param="${paramId}"].param-reset-btn`);
-            buttons.forEach(button => {
-                button.classList.add('flash');
-                this.resourceManager.setTimeout(() => {
-                    button.classList.remove('flash');
-                }, 300);
-            });
-            
-            Logger.log(`🔄 ${spec.label} reset to default (${spec.value}) for ${resetCount}/${this.config.SLOTS} slots${lockedCount > 0 ? ` (${lockedCount} locked)` : ''}`);
-            this.saveCurrentState();
-        }
-
-        _randomizeParameter(paramId) {
-            const spec = this.config.PER_SLOT_CONTROL_SPECS.find(s => s.id === paramId);
-            if (!spec) return;
-            
-            let randomizedCount = 0;
-            let lockedCount = 0;
-            
-            for (let slot = 0; slot < this.config.SLOTS; slot++) {
-                const elementId = `${paramId}-slot${slot}`;
-                
-                if (this._isKnobLocked(elementId)) {
-                    lockedCount++;
-                    continue;
-                }
-                
-                let randomValue;
-                if (spec.id === 'volume') {
-                    // Volumeは少し特別な処理
-                    randomValue = Math.random() * (CONSTANTS.VOLUME_RANDOM_MAX - CONSTANTS.VOLUME_RANDOM_MIN) + CONSTANTS.VOLUME_RANDOM_MIN;
-                } else if (spec.id === 'envelopeShape' || spec.id === 'lfoWaveform') {
-                    // 整数値のパラメータ
-                    randomValue = Math.floor(Math.random() * (spec.max - spec.min + 1)) + spec.min;
-                } else {
-                    // 通常のパラメータ
-                    randomValue = Math.random() * (spec.max - spec.min) + spec.min;
-                    if (spec.step) {
-                        randomValue = Math.round(randomValue / spec.step) * spec.step;
-                    }
-                }
-                
-                if (this.state.knobDragStates[elementId]) {
-                    this.state.knobDragStates[elementId].currentValue = randomValue;
-                }
-                
-                this._updateKnobDisplay(elementId, spec, randomValue);
-                randomizedCount++;
-            }
-            
-            // 視覚的フィードバック
-            const buttons = this.domCache.querySelectorAll(`[data-param="${paramId}"]`);
-            buttons.forEach(button => {
-                button.classList.add('flash');
-                this.resourceManager.setTimeout(() => {
-                    button.classList.remove('flash');
-                }, 300);
-            });
-            
-            Logger.log(`🎲 ${spec.label} randomized for ${randomizedCount}/${this.config.SLOTS} slots${lockedCount > 0 ? ` (${lockedCount} locked)` : ''}`);
-            this.saveCurrentState();
-        }
-
-        _bindKnobEvents(elementId, spec, slotIndex) {
-            const knobElement = this.domCache.getElementById(`${elementId}Knob`, true);
-            if (!knobElement) return;
-
-            this.state.knobDragStates[elementId] = {
-                isDragging: false,
-                startY: 0,
-                startValue: spec.value,
-                currentValue: spec.value,
-                lastTapTime: 0
-            };
-
-            const valueRange = spec.max - spec.min;
-            const baseSensitivity = CONSTANTS.KNOB_BASE_SENSITIVITY;
-            const baseRange = CONSTANTS.KNOB_BASE_RANGE;
-            const normalizedSensitivity = baseSensitivity * (valueRange / baseRange);
-
-            // Event handlers stored for cleanup
-            let mouseMoveHandler = null;
-            let mouseUpHandler = null;
-            let touchMoveHandler = null;
-            let touchEndHandler = null;
-            let touchCancelHandler = null;
-
-            const onDragStart = (clientY) => {
-                this.state.knobDragStates[elementId].isDragging = true;
-                knobElement.style.cursor = 'ns-resize';
-                this.state.knobDragStates[elementId].startY = clientY;
-                this.state.knobDragStates[elementId].startValue = this.state.knobDragStates[elementId].currentValue;
-
-                // Add global event listeners only during drag
-                mouseMoveHandler = (e) => onDragMove(e.clientY);
-                mouseUpHandler = () => onDragEnd();
-                touchMoveHandler = (e) => {
-                    onDragMove(e.touches[0].clientY);
-                    e.preventDefault();
-                };
-                touchEndHandler = () => onDragEnd();
-                touchCancelHandler = () => onDragEnd();
-
-                this.resourceManager.addEventListener(document, 'mousemove', mouseMoveHandler);
-                this.resourceManager.addEventListener(document, 'mouseup', mouseUpHandler);
-                this.resourceManager.addEventListener(document, 'touchmove', touchMoveHandler, { passive: false });
-                this.resourceManager.addEventListener(document, 'touchend', touchEndHandler);
-                this.resourceManager.addEventListener(document, 'touchcancel', touchCancelHandler);
-
-                return true;
-            };
-
-            const onDragMove = (clientY) => {
-                const dragState = this.state.knobDragStates[elementId];
-                if (!dragState.isDragging) return;
-
-                const deltaY = dragState.startY - clientY;
-                let newValue = dragState.startValue + (deltaY * normalizedSensitivity);
-
-                newValue = Math.max(spec.min, Math.min(spec.max, newValue));
-
-                if (spec.step) {
-                    newValue = Math.round(newValue / spec.step) * spec.step;
-                }
-
-                dragState.currentValue = newValue;
-                this._updateKnobDisplay(elementId, spec, newValue);
-
-                // Real-time sequencer update for SEQ PROB knob
-                if (elementId === 'randomDensity') {
-                    Logger.debug(`SEQ PROB knob dragged to: ${newValue}`);
-                    this.randomizeSequencer();
-                }
-            };
-
-            const onDragEnd = () => {
-                const dragState = this.state.knobDragStates[elementId];
-                if (dragState.isDragging) {
-                    dragState.isDragging = false;
-                    knobElement.style.cursor = 'grab';
-                    this.saveCurrentState();
-
-                    // Remove global event listeners after drag
-                    if (mouseMoveHandler) {
-                        this.resourceManager.removeEventListener(document, 'mousemove', mouseMoveHandler);
-                        this.resourceManager.removeEventListener(document, 'mouseup', mouseUpHandler);
-                        this.resourceManager.removeEventListener(document, 'touchmove', touchMoveHandler);
-                        this.resourceManager.removeEventListener(document, 'touchend', touchEndHandler);
-                        this.resourceManager.removeEventListener(document, 'touchcancel', touchCancelHandler);
-                        mouseMoveHandler = null;
-                        mouseUpHandler = null;
-                        touchMoveHandler = null;
-                        touchEndHandler = null;
-                        touchCancelHandler = null;
-                    }
-                }
-            };
-
-            const onDoubleAction = () => {
-                const dragState = this.state.knobDragStates[elementId];
-                dragState.currentValue = spec.value;
-                this._updateKnobDisplay(elementId, spec, spec.value);
-                this.saveCurrentState();
-                
-                knobElement.style.transition = 'transform 0.1s ease';
-                knobElement.style.transform = `scale(${CONSTANTS.KNOB_SCALE_FACTOR})`;
-                this.resourceManager.setTimeout(() => {
-                    knobElement.style.transform = 'scale(1)';
-                    this.resourceManager.setTimeout(() => {
-                        knobElement.style.transition = '';
-                    }, CONSTANTS.KNOB_SCALE_DURATION_MS);
-                }, CONSTANTS.KNOB_SCALE_DURATION_MS);
-            };
-
-            const onRightClick = (e) => {
-                e.preventDefault();
-                const isCurrentlyLocked = this._isKnobLocked(elementId);
-                this._setKnobLocked(elementId, !isCurrentlyLocked);
-            };
-
-            this.resourceManager.addEventListener(knobElement, 'mousedown', e => {
-                if (e.button === 0) {
-                    onDragStart(e.clientY);
-                    e.preventDefault();
-                }
-            });
-
-            this.resourceManager.addEventListener(knobElement, 'contextmenu', onRightClick);
-
-            this.resourceManager.addEventListener(knobElement, 'dblclick', e => {
-                e.preventDefault();
-                onDoubleAction();
-            });
-
-            this.resourceManager.addEventListener(knobElement, 'touchstart', e => {
-                const currentTime = Date.now();
-                const dragState = this.state.knobDragStates[elementId];
-
-                if (currentTime - dragState.lastTapTime < CONSTANTS.DOUBLE_TAP_THRESHOLD_MS) {
-                    e.preventDefault();
-                    onDoubleAction();
-                    dragState.lastTapTime = 0;
-                    return;
-                }
-
-                dragState.lastTapTime = currentTime;
-                onDragStart(e.touches[0].clientY);
-                e.preventDefault();
-            }, { passive: false });
-            
-            if (this._isKnobLocked(elementId)) {
-                knobElement.classList.add('locked');
-            }
-            knobElement.style.cursor = 'grab';
-        }
-
-        _getKnobValue(elementId) {
-            const dragState = this.state.knobDragStates[elementId];
-            return dragState ? dragState.currentValue : 0;
         }
 
         _setupCollapsibleHeaders() {
@@ -680,16 +391,16 @@ export class OptimizedMultigrainPlayer {
             this.resourceManager.addEventListener(this.ui.stopGranular, 'click', () => this.stopGranularPlayback());
             this.resourceManager.addEventListener(this.ui.randomizeSequencer, 'click', () => this.randomizeSequencer());
             this.resourceManager.addEventListener(this.ui.randomizeAllSlotParams, 'click', () => this.randomizeAllSlotParams());
-            this.resourceManager.addEventListener(this.ui.clearPanButton, 'click', () => this.clearAllPan());
-            this.resourceManager.addEventListener(this.ui.resetHpfButton, 'click', () => this.setHpf(0));
-            this.resourceManager.addEventListener(this.ui.setHpf130Button, 'click', () => this.setHpf(130));
-            this.resourceManager.addEventListener(this.ui.setHpf900Button, 'click', () => this.setHpf(900));
-            this.resourceManager.addEventListener(this.ui.setAtk0Button, 'click', () => this.setAttackTime(3));
-            this.resourceManager.addEventListener(this.ui.percButton, 'click', () => this.setPercussivePreset());
-            this.resourceManager.addEventListener(this.ui.unlockAllKnobsButton, 'click', () => this._unlockAllKnobs());
+            this.resourceManager.addEventListener(this.ui.clearPanButton, 'click', () => this.parameterController.clearPan());
+            this.resourceManager.addEventListener(this.ui.resetHpfButton, 'click', () => this.parameterController.setHpf(0));
+            this.resourceManager.addEventListener(this.ui.setHpf130Button, 'click', () => this.parameterController.setHpf(130));
+            this.resourceManager.addEventListener(this.ui.setHpf900Button, 'click', () => this.parameterController.setHpf(900));
+            this.resourceManager.addEventListener(this.ui.setAtk0Button, 'click', () => this.parameterController.setAttackTime(3));
+            this.resourceManager.addEventListener(this.ui.percButton, 'click', () => this.parameterController.setPercussivePreset());
+            this.resourceManager.addEventListener(this.ui.unlockAllKnobsButton, 'click', () => this.parameterController.unlockAllKnobs());
             this.resourceManager.addEventListener(this.ui.undoButton, 'click', () => this.undo());
             this.resourceManager.addEventListener(this.ui.redoButton, 'click', () => this.redo());
-            this.resourceManager.addEventListener(this.ui.loadPathButton, 'click', () => this._loadFolderSamples());
+            this.resourceManager.addEventListener(this.ui.loadPathButton, 'click', () => this.fileLoaderController.loadFolderSamples(this.ui));
             this.resourceManager.addEventListener(this.ui.togglePerfMonitor, 'click', () => {
                 this._safeExecute(() => this.performanceMonitor.toggle(), 'Performance Monitor toggle');
             });
@@ -698,23 +409,29 @@ export class OptimizedMultigrainPlayer {
             this.resourceManager.addEventListener(document, 'click', (e) => {
                 if (e.target.classList.contains('param-random-btn')) {
                     const paramId = e.target.dataset.param;
-                    this._randomizeParameter(paramId);
+                    this.parameterController.randomizeParameter(paramId);
                 }
 
                 if (e.target.classList.contains('param-reset-btn')) {
                     const paramId = e.target.dataset.param;
-                    this._resetParameter(paramId);
+                    this.parameterController.resetParameter(paramId);
                 }
 
                 if (e.target.classList.contains('param-lock-btn')) {
                     const paramId = e.target.dataset.param;
-                    this._toggleParameterLock(paramId);
+                    this.parameterController.toggleParameterLock(paramId);
                 }
             });
 
             for (let s = 0; s < this.config.SLOTS; s++) {
                 const fileInput = this.domCache.getElementById(`hiddenFileInput-slot${s}`);
-                this.resourceManager.addEventListener(fileInput, 'change', e => this._handleFileLoad(e));
+                this.resourceManager.addEventListener(fileInput, 'change', async (e) => {
+                    const slot = parseInt(e.target.dataset.slot);
+                    const file = e.target.files[0];
+                    if (!file) return;
+                    await this.fileLoaderController.handleFileLoad(file, slot);
+                    e.target.value = ''; // Clear the input
+                });
 
                 const canvas = this.domCache.getElementById(`waveform-${s}`);
                 this.resourceManager.addEventListener(canvas, 'mousedown', (e) => this._onWaveformPlaybackStart(e, s));
@@ -741,10 +458,10 @@ export class OptimizedMultigrainPlayer {
                  }
             });
 
-            this._bindKnobEvents('bpm', this.config.BPM_SPEC, null);
-            this._bindKnobEvents('randomDensity', this.config.RANDOM_DENSITY_SPEC, null);
-            
-            this._bindKeyboardShortcuts();
+            this.parameterController.bindKnobEvents('bpm', this.config.BPM_SPEC, null);
+            this.parameterController.bindKnobEvents('randomDensity', this.config.RANDOM_DENSITY_SPEC, null);
+
+            this.keyboardController.bindKeyboardShortcuts();
             this._initializeDragAndDrop();
         }
 
@@ -1252,488 +969,6 @@ export class OptimizedMultigrainPlayer {
             });
         }
 
-        _setupSectionDragging() {
-            this.resourceManager.addEventListener(document, 'mousedown', (e) => this._handleDragResizeStart(e));
-            this.resourceManager.addEventListener(document, 'mousemove', (e) => this._handleDragResizeMove(e));
-            this.resourceManager.addEventListener(document, 'mouseup', (e) => this._handleDragResizeEnd(e));
-
-            this.resourceManager.addEventListener(document, 'touchstart', (e) => this._handleDragResizeStart(e), {passive: false});
-            this.resourceManager.addEventListener(document, 'touchmove', (e) => this._handleDragResizeMove(e), {passive: false});
-            this.resourceManager.addEventListener(document, 'touchend', (e) => this._handleDragResizeEnd(e));
-        }
-
-        _handleDragResizeStart(e) {
-            if (!this.state.isFreeLayoutMode) return;
-            
-            if (e.target.classList.contains('resize-handle')) {
-                this._startResize(e, e.target);
-                return;
-            }
-            
-            const titleBar = e.target.closest('.group-title');
-            if (!titleBar) return;
-            
-            const target = titleBar.closest('.panel-group');
-            if (!target || !target.classList.contains('draggable')) return;
-            
-            this._startDrag(e, target, titleBar);
-        }
-
-        _handleDragResizeMove(e) {
-            if (this.state.dragState.isDragging) {
-                this._handleDragMove(e);
-            } else if (this.state.resizeState.isResizing) {
-                this._handleResizeMove(e);
-            }
-        }
-
-        _handleDragResizeEnd(e) {
-            if (this.state.dragState.isDragging) {
-                this._handleDragEnd(e);
-            } else if (this.state.resizeState.isResizing) {
-                this._handleResizeEnd(e);
-            }
-        }
-
-        _startDrag(e, target, titleBar) {
-            e.preventDefault();
-            
-            const clientX = e.clientX || (e.touches && e.touches[0].clientX);
-            const clientY = e.clientY || (e.touches && e.touches[0].clientY);
-            
-            const rect = target.getBoundingClientRect();
-            
-            this.state.dragState = {
-                isDragging: true,
-                currentElement: target,
-                startX: clientX,
-                startY: clientY,
-                offsetX: clientX - rect.left,
-                offsetY: clientY - rect.top
-            };
-            
-            target.classList.add('dragging');
-            document.body.style.userSelect = 'none';
-            document.body.style.overflow = 'hidden';
-        }
-
-        _startResize(e, resizeHandle) {
-            e.preventDefault();
-            e.stopPropagation();
-            
-            const target = resizeHandle.parentElement;
-            if (!target || !target.classList.contains('panel-group')) {
-                return;
-            }
-            
-            const clientX = e.clientX || (e.touches && e.touches[0].clientX);
-            const clientY = e.clientY || (e.touches && e.touches[0].clientY);
-            
-            const rect = target.getBoundingClientRect();
-            
-            this.state.resizeState = {
-                isResizing: true,
-                currentElement: target,
-                startX: clientX,
-                startY: clientY,
-                startWidth: rect.width,
-                startHeight: rect.height
-            };
-            
-            target.classList.add('resizing');
-            document.body.style.userSelect = 'none';
-            document.body.style.cursor = 'se-resize';
-        }
-
-        _handleDragMove(e) {
-            if (!this.state.dragState.isDragging) return;
-            
-            e.preventDefault();
-            
-            const clientX = e.clientX || (e.touches && e.touches[0].clientX);
-            const clientY = e.clientY || (e.touches && e.touches[0].clientY);
-            
-            const newX = clientX - this.state.dragState.offsetX;
-            const newY = clientY - this.state.dragState.offsetY;
-            
-            const container = this.domCache.getElementById('layoutContainer');
-            const containerRect = container.getBoundingClientRect();
-            const element = this.state.dragState.currentElement;
-            const elementRect = element.getBoundingClientRect();
-            
-            const maxX = containerRect.width - elementRect.width;
-            const maxY = containerRect.height - elementRect.height;
-            
-            const boundedX = Math.max(0, Math.min(newX, maxX));
-            const boundedY = Math.max(0, Math.min(newY, maxY));
-            
-            element.style.left = boundedX + 'px';
-            element.style.top = boundedY + 'px';
-        }
-
-        _handleResizeMove(e) {
-            if (!this.state.resizeState.isResizing) return;
-            
-            e.preventDefault();
-            e.stopPropagation();
-            
-            const clientX = e.clientX || (e.touches && e.touches[0].clientX);
-            const clientY = e.clientY || (e.touches && e.touches[0].clientY);
-            
-            const deltaX = clientX - this.state.resizeState.startX;
-            const deltaY = clientY - this.state.resizeState.startY;
-            
-            let newWidth = this.state.resizeState.startWidth + deltaX;
-            let newHeight = this.state.resizeState.startHeight + deltaY;
-            
-            const minWidth = 200;
-            const maxWidth = 1000;
-            const minHeight = 150;
-            const maxHeight = 1000;
-            
-            newWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
-            newHeight = Math.max(minHeight, Math.min(maxHeight, newHeight));
-            
-            const element = this.state.resizeState.currentElement;
-            element.style.width = newWidth + 'px';
-            element.style.height = newHeight + 'px';
-        }
-
-        _handleDragEnd(e) {
-            if (!this.state.dragState.isDragging) return;
-            
-            const element = this.state.dragState.currentElement;
-            element.classList.remove('dragging');
-            document.body.style.userSelect = '';
-            document.body.style.overflow = '';
-            
-            this.state.sectionPositions[element.id] = {
-                ...this.state.sectionPositions[element.id],
-                x: parseInt(element.style.left) || 0,
-                y: parseInt(element.style.top) || 0
-            };
-            
-            this.state.dragState = {
-                isDragging: false,
-                currentElement: null,
-                startX: 0,
-                startY: 0,
-                offsetX: 0,
-                offsetY: 0
-            };
-        }
-
-        _handleResizeEnd(e) {
-            if (!this.state.resizeState.isResizing) return;
-            
-            const element = this.state.resizeState.currentElement;
-            element.classList.remove('resizing');
-            document.body.style.userSelect = '';
-            document.body.style.cursor = '';
-            
-            const currentPosition = this.state.sectionPositions[element.id] || {};
-            this.state.sectionPositions[element.id] = {
-                ...currentPosition,
-                width: parseInt(element.style.width) || 300,
-                height: parseInt(element.style.height) || 200
-            };
-            
-            this.state.resizeState = {
-                isResizing: false,
-                currentElement: null,
-                startX: 0,
-                startY: 0,
-                startWidth: 0,
-                startHeight: 0
-            };
-        }
-
-        _bindKeyboardShortcuts() {
-            this.resourceManager.addEventListener(document, 'keydown', (e) => {
-                const activeElement = document.activeElement;
-                if (activeElement && (
-                    activeElement.tagName === 'INPUT' || 
-                    activeElement.tagName === 'TEXTAREA' || 
-                    activeElement.tagName === 'SELECT' ||
-                    activeElement.contentEditable === 'true'
-                )) {
-                    return;
-                }
-
-                if (e.code === 'KeyM') {
-                    this.state.isMKeyPressed = true;
-                }
-                
-                if (e.code === 'KeyO') {
-                    this.state.isOKeyPressed = true;
-                }
-
-                switch (e.code) {
-                    case 'Space':
-                        e.preventDefault();
-                        this._handleSpaceKey();
-                        break;
-                        
-                    case 'Escape':
-                        e.preventDefault();
-                        this._handleEscapeKey();
-                        break;
-                        
-                    case 'KeyZ':
-                        if (e.ctrlKey && !e.shiftKey) {
-                            e.preventDefault();
-                            this.undo();
-                        }
-                        break;
-                        
-                    case 'KeyY':
-                        if (e.ctrlKey) {
-                            e.preventDefault();
-                            this.redo();
-                        }
-                        break;
-
-                    case 'KeyL':
-                        if (e.ctrlKey) {
-                            e.preventDefault();
-                            this._loadFolderSamples();
-                        }
-                        break;
-
-                    case 'Digit1':
-                        if (e.shiftKey) {
-                            e.preventDefault();
-                            this._handleSlotShortcut(0, 'solo');
-                        } else if (this.state.isMKeyPressed && this.state.isOKeyPressed) {
-                            e.preventDefault();
-                            this._handleModeShortcut(0); // Fixed (Slot 1)
-                        } else if (this.state.isMKeyPressed) {
-                            e.preventDefault();
-                            this._handleSlotShortcut(0, 'mute'); // Mute (Slot 1)
-                        }
-                        break;
-
-                    case 'Digit2':
-                        if (e.shiftKey) {
-                            e.preventDefault();
-                            this._handleSlotShortcut(1, 'solo');
-                        } else if (this.state.isMKeyPressed && this.state.isOKeyPressed) {
-                            e.preventDefault();
-                            this._handleModeShortcut(1); // Fixed (Slot 2)
-                        } else if (this.state.isMKeyPressed) {
-                            e.preventDefault();
-                            this._handleSlotShortcut(1, 'mute'); // Mute (Slot 2)
-                        }
-                        break;
-
-                    case 'Digit3':
-                        if (e.shiftKey) {
-                            e.preventDefault();
-                            this._handleSlotShortcut(2, 'solo');
-                        } else if (this.state.isMKeyPressed && this.state.isOKeyPressed) {
-                            e.preventDefault();
-                            this._handleModeShortcut(2); // Fixed (Slot 3)
-                        } else if (this.state.isMKeyPressed) {
-                            e.preventDefault();
-                            this._handleSlotShortcut(2, 'mute'); // Mute (Slot 3)
-                        }
-                        break;
-
-                    case 'Digit4':
-                        if (e.shiftKey) {
-                            e.preventDefault();
-                            this._handleSlotShortcut(3, 'solo');
-                        } else if (this.state.isMKeyPressed && this.state.isOKeyPressed) {
-                            e.preventDefault();
-                            this._handleModeShortcut(3); // Fixed (Slot 4)
-                        } else if (this.state.isMKeyPressed) {
-                            e.preventDefault();
-                            this._handleSlotShortcut(3, 'mute'); // Mute (Slot 4)
-                        }
-                        break;
-
-                    case 'KeyA':
-                        if (this.state.isMKeyPressed && this.state.isOKeyPressed) {
-                            e.preventDefault();
-                            this._handleModeShortcut(4); // All
-                        }
-                        break;
-
-                    case 'KeyR':
-                        if (this.state.isMKeyPressed && this.state.isOKeyPressed) {
-                            e.preventDefault();
-                            this._handleModeShortcut(5); // Random
-                        }
-                        break;
-
-                    case 'ArrowLeft':
-                        e.preventDefault();
-                        this._handleSequencerNavigation('left', e.shiftKey);
-                        break;
-                        
-                    case 'ArrowRight':
-                        e.preventDefault();
-                        this._handleSequencerNavigation('right', e.shiftKey);
-                        break;
-                        
-                    case 'ArrowUp':
-                        e.preventDefault();
-                        this._handleSequencerNavigation('up', e.shiftKey);
-                        break;
-                        
-                    case 'ArrowDown':
-                        e.preventDefault();
-                        this._handleSequencerNavigation('down', e.shiftKey);
-                        break;
-                        
-                    case 'Enter':
-                        e.preventDefault();
-                        this._handleSequencerToggle();
-                        break;
-                        
-                    case 'Delete':
-                        e.preventDefault();
-                        this._handleSequencerDelete();
-                        break;
-                }
-            });
-
-            this.resourceManager.addEventListener(document, 'keyup', (e) => {
-                if (e.code === 'KeyM') {
-                    this.state.isMKeyPressed = false;
-                }
-                if (e.code === 'KeyO') {
-                    this.state.isOKeyPressed = false;
-                }
-            });
-        }
-
-        _handleModeShortcut(modeValue) {
-            const slotModeSelect = this.domCache.getElementById('slotMode');
-            if (slotModeSelect) {
-                slotModeSelect.value = modeValue;
-
-                // 視覚的フィードバック
-                const modePanel = this.domCache.getElementById('mode-section');
-                if (modePanel) {
-                    modePanel.style.transition = 'transform 0.1s ease';
-                    modePanel.style.transform = 'scale(1.02)';
-                    this.resourceManager.setTimeout(() => {
-                        modePanel.style.transform = 'scale(1)';
-                        this.resourceManager.setTimeout(() => {
-                            modePanel.style.transition = '';
-                        }, 100);
-                    }, 100);
-                }
-                
-                // コンソールログで確認
-                const modeNames = [
-                    'Fixed (Slot 1)', 'Fixed (Slot 2)', 'Fixed (Slot 3)', 
-                    'Fixed (Slot 4)', 'All', 'Random'
-                ];
-                Logger.log(`🎛️ Mode changed to: ${modeNames[modeValue]}`);
-                
-                this.saveCurrentState();
-            }
-        }
-
-        _handleSpaceKey() {
-            if (this.state.isPlaying) {
-                this.stopGranularPlayback();
-            } else {
-                this.startGranularPlayback();
-            }
-        }
-
-        _handleSequencerNavigation(direction, isShiftPressed) {
-            const maxStep = this.config.SEQUENCER_STEPS - 1;
-            const maxSlot = this.config.SLOTS - 1;
-
-            switch (direction) {
-                case 'left':
-                    if (isShiftPressed) {
-                        this._handleMultiSelect('left');
-                    } else {
-                        this._clearMultiSelect();
-                        this.state.selectedStep = Math.max(0, this.state.selectedStep - 1);
-                    }
-                    break;
-                    
-                case 'right':
-                    if (isShiftPressed) {
-                        this._handleMultiSelect('right');
-                    } else {
-                        this._clearMultiSelect();
-                        this.state.selectedStep = Math.min(maxStep, this.state.selectedStep + 1);
-                    }
-                    break;
-                    
-                case 'up':
-                    this._clearMultiSelect();
-                    this.state.selectedSlot = Math.max(0, this.state.selectedSlot - 1);
-                    break;
-                    
-                case 'down':
-                    this._clearMultiSelect();
-                    this.state.selectedSlot = Math.min(maxSlot, this.state.selectedSlot + 1);
-                    break;
-            }
-
-            this._updateSequencerSelection();
-        }
-
-        _handleMultiSelect(direction) {
-            if (!this.state.isMultiSelecting) {
-                this.state.isMultiSelecting = true;
-                this.state.multiSelectStart = this.state.selectedStep;
-                this.state.multiSelectEnd = this.state.selectedStep;
-            }
-
-            if (direction === 'left' && this.state.multiSelectEnd > 0) {
-                this.state.multiSelectEnd--;
-            } else if (direction === 'right' && this.state.multiSelectEnd < this.config.SEQUENCER_STEPS - 1) {
-                this.state.multiSelectEnd++;
-            }
-
-            this.state.selectedStep = this.state.multiSelectEnd;
-        }
-
-        _clearMultiSelect() {
-            this.state.isMultiSelecting = false;
-            this.state.multiSelectStart = -1;
-            this.state.multiSelectEnd = -1;
-        }
-
-        _handleSequencerToggle() {
-            if (this.state.isMultiSelecting) {
-                const start = Math.min(this.state.multiSelectStart, this.state.multiSelectEnd);
-                const end = Math.max(this.state.multiSelectStart, this.state.multiSelectEnd);
-                
-                for (let step = start; step <= end; step++) {
-                    this._toggleSequencerStep(this.state.selectedSlot, step);
-                }
-            } else {
-                this._toggleSequencerStep(this.state.selectedSlot, this.state.selectedStep);
-            }
-            
-            this.saveCurrentState();
-        }
-
-        _handleSequencerDelete() {
-            if (this.state.isMultiSelecting) {
-                const start = Math.min(this.state.multiSelectStart, this.state.multiSelectEnd);
-                const end = Math.max(this.state.multiSelectStart, this.state.multiSelectEnd);
-                
-                for (let step = start; step <= end; step++) {
-                    this._setSequencerStep(this.state.selectedSlot, step, false);
-                }
-            } else {
-                this._setSequencerStep(this.state.selectedSlot, this.state.selectedStep, false);
-            }
-            
-            this.saveCurrentState();
-        }
-
         _toggleSequencerStep(slot, step) {
             // Delegate to SequencerController
             this.sequencerController.toggleStep(slot, step);
@@ -1750,76 +985,6 @@ export class OptimizedMultigrainPlayer {
             this.state.sequencerPatterns = this.sequencerController.getPatterns();
         }
 
-        _updateSequencerSelection() {
-            this.domCache.querySelectorAll('.step.selected, .step.multi-selected', true).forEach(element => {
-                element.classList.remove('selected', 'multi-selected');
-            });
-
-            if (this.state.isMultiSelecting) {
-                const start = Math.min(this.state.multiSelectStart, this.state.multiSelectEnd);
-                const end = Math.max(this.state.multiSelectStart, this.state.multiSelectEnd);
-                
-                for (let step = start; step <= end; step++) {
-                    const stepElement = this.domCache.querySelector(
-                        `.step[data-slot='${this.state.selectedSlot}'][data-step='${step}']`
-                    );
-                    if (stepElement) {
-                        stepElement.classList.add('multi-selected');
-                    }
-                }
-            } else {
-                const selectedElement = this.domCache.querySelector(
-                    `.step[data-slot='${this.state.selectedSlot}'][data-step='${this.state.selectedStep}']`
-                );
-                if (selectedElement) {
-                    selectedElement.classList.add('selected');
-                }
-            }
-        }
-
-        _handleEscapeKey() {
-            if (this.state.isMultiSelecting) {
-                this._clearMultiSelect();
-                this._updateSequencerSelection();
-                return;
-            }
-
-            this.stopGranularPlayback();
-            this.grainVoiceManager.stopAll();
-            
-            for (let s = 0; s < this.config.SLOTS; s++) {
-                if (this.state.previewSources[s]) {
-                    this.state.previewSources[s].stop();
-                    this.state.previewSources[s].disconnect();
-                    this.state.previewSources[s] = null;
-                }
-            }
-        }
-
-        async _handleFileLoad(e) {
-            const slot = parseInt(e.target.dataset.slot);
-            const file = e.target.files[0];
-            if (!file) return;
-
-            try {
-                // Validate and load file with proper error handling
-                const decoded = await loadAudioFile(file, this.audioContext);
-
-                this.state.audioBuffers[slot] = decoded;
-                this.state.waveformRenderers[slot].drawWaveform(decoded);
-                this.domCache.getElementById(`fileName-slot${slot}`).textContent = file.name;
-                this.saveCurrentState();
-
-                Logger.log(`✅ Slot ${slot}: ${file.name} loaded successfully`);
-            } catch (err) {
-                Logger.error(`❌ Failed to load file for Slot ${slot}:`, err);
-                alert(`ファイルの読み込みに失敗しました:\n${err.message}`);
-
-                // Clear the file input
-                e.target.value = '';
-            }
-        }
-        
         _handleStepClick(cell) {
             const slot = +cell.dataset.slot;
             const step = +cell.dataset.step;
@@ -1829,33 +994,6 @@ export class OptimizedMultigrainPlayer {
 
             // Sync state
             this.state.sequencerPatterns = this.sequencerController.getPatterns();
-            this.saveCurrentState();
-        }
-
-        _handleSlotShortcut(slot, type) {
-            switch (type) {
-                case 'solo':
-                    if (this.state.slotSoloStatus[slot]) {
-                        this.state.slotSoloStatus[slot] = false;
-                    } else {
-                        for (let i = 0; i < this.config.SLOTS; i++) {
-                            this.state.slotSoloStatus[i] = false;
-                        }
-                        this.state.slotSoloStatus[slot] = true;
-                        this.state.slotMuteStatus[slot] = false;
-                    }
-                    this._updateAllSlotControlButtons();
-                    break;
-                    
-                case 'mute':
-                    this.state.slotMuteStatus[slot] = !this.state.slotMuteStatus[slot];
-                    if (this.state.slotMuteStatus[slot]) {
-                        this.state.slotSoloStatus[slot] = false;
-                    }
-                    this._updateSlotControlButtons(slot);
-                    break;
-            }
-            
             this.saveCurrentState();
         }
 
@@ -1926,7 +1064,7 @@ export class OptimizedMultigrainPlayer {
                 src.buffer = this.state.audioBuffers[slotIndex];
                 
                 const volumeElementId = `volume-slot${slotIndex}`;
-                const volumeValue = this._getKnobValue(volumeElementId) || 0.7;
+                const volumeValue = this.parameterController.getKnobValue(volumeElementId) || 0.7;
                 
                 const previewGain = this.audioContext.createGain();
                 previewGain.gain.value = volumeValue;
@@ -2040,7 +1178,7 @@ export class OptimizedMultigrainPlayer {
             const params = {};
             this.config.PER_SLOT_CONTROL_SPECS.forEach(spec => {
                 const elementId = `${spec.id}-slot${targetSlot}`;
-                params[spec.id] = this._getKnobValue(elementId);
+                params[spec.id] = this.parameterController.getKnobValue(elementId);
             });
 
             const maxGrains = Math.min(params.grainsPerStep, 20);
@@ -2157,7 +1295,7 @@ export class OptimizedMultigrainPlayer {
         }
 
         randomizeSequencer() {
-            const density = this._getKnobValue('randomDensity');
+            const density = this.parameterController.getKnobValue('randomDensity');
             this.sequencerController.randomizeSequencer(density);
 
             // Sync state
@@ -2173,7 +1311,7 @@ export class OptimizedMultigrainPlayer {
                 this.config.PER_SLOT_CONTROL_SPECS.forEach(spec => {
                     const elementId = `${spec.id}-slot${s}`;
                     
-                    if (this._isKnobLocked(elementId)) {
+                    if (this.parameterController.isKnobLocked(elementId)) {
                         lockedCount++;
                         return;
                     }
@@ -2201,265 +1339,6 @@ export class OptimizedMultigrainPlayer {
             this.saveCurrentState();
         }
 
-        clearAllPan() {
-            let clearedCount = 0;
-            let lockedCount = 0;
-            
-            for (let s = 0; s < this.config.SLOTS; s++) {
-                const panElementId = `panControl-slot${s}`;
-                const panRandomElementId = `panRandom-slot${s}`;
-                
-                if (!this._isKnobLocked(panElementId)) {
-                    if (this.state.knobDragStates[panElementId]) {
-                        this.state.knobDragStates[panElementId].currentValue = 0;
-                    }
-                    
-                    const panSpec = this.config.PER_SLOT_CONTROL_SPECS.find(spec => spec.id === 'panControl');
-                    if (panSpec) {
-                        this._updateKnobDisplay(panElementId, panSpec, 0);
-                        clearedCount++;
-                    }
-                } else {
-                    lockedCount++;
-                }
-                
-                if (!this._isKnobLocked(panRandomElementId)) {
-                    if (this.state.knobDragStates[panRandomElementId]) {
-                        this.state.knobDragStates[panRandomElementId].currentValue = 0;
-                    }
-                    
-                    const panRandomSpec = this.config.PER_SLOT_CONTROL_SPECS.find(spec => spec.id === 'panRandom');
-                    if (panRandomSpec) {
-                        this._updateKnobDisplay(panRandomElementId, panRandomSpec, 0);
-                        clearedCount++;
-                    }
-                } else {
-                    lockedCount++;
-                }
-            }
-            
-            this.saveCurrentState();
-        }
-
-        setHpf(frequency) {
-            let setCount = 0;
-            let lockedCount = 0;
-            
-            for (let s = 0; s < this.config.SLOTS; s++) {
-                const elementId = `cutoffFreq-slot${s}`;
-                const spec = this.config.PER_SLOT_CONTROL_SPECS.find(spec => spec.id === 'cutoffFreq');
-                
-                if (spec) {
-                    if (this._isKnobLocked(elementId)) {
-                        lockedCount++;
-                        continue;
-                    }
-                    
-                    const valueToSet = Math.max(spec.min, Math.min(spec.max, frequency));
-                    
-                    if (this.state.knobDragStates[elementId]) {
-                        this.state.knobDragStates[elementId].currentValue = valueToSet;
-                    }
-                    
-                    this._updateKnobDisplay(elementId, spec, valueToSet);
-                    setCount++;
-                }
-            }
-            
-            this.saveCurrentState();
-        }
-
-        setAttackTime(attackTime) {
-            let setCount = 0;
-            let lockedCount = 0;
-            
-            for (let s = 0; s < this.config.SLOTS; s++) {
-                const elementId = `attackTime-slot${s}`;
-                const spec = this.config.PER_SLOT_CONTROL_SPECS.find(spec => spec.id === 'attackTime');
-                
-                if (spec) {
-                    if (this._isKnobLocked(elementId)) {
-                        lockedCount++;
-                        continue;
-                    }
-                    
-                    if (this.state.knobDragStates[elementId]) {
-                        this.state.knobDragStates[elementId].currentValue = attackTime;
-                    }
-                    
-                    this._updateKnobDisplay(elementId, spec, attackTime);
-                    setCount++;
-                }
-            }
-            
-            this.saveCurrentState();
-        }
-
-        setPercussivePreset() {
-            const presetValues = {
-                'startOffset': 0,
-                'attackTime': 3,
-                'envelopeShape': 1,
-                'lfoRate': 5.0,
-                'lfoWaveform': 3,
-                'decayTime': 450,
-                'panControl': 0,
-                'panRandom': 0.02,
-                'spread': 25
-            };
-
-            let setCount = 0;
-            let lockedCount = 0;
-
-            for (let s = 0; s < this.config.SLOTS; s++) {
-                Object.entries(presetValues).forEach(([paramId, value]) => {
-                    const elementId = `${paramId}-slot${s}`;
-                    const spec = this.config.PER_SLOT_CONTROL_SPECS.find(spec => spec.id === paramId);
-                    
-                    if (spec) {
-                        if (this._isKnobLocked(elementId)) {
-                            lockedCount++;
-                            return;
-                        }
-                        
-                        const clampedValue = Math.max(spec.min, Math.min(spec.max, value));
-                        
-                        if (this.state.knobDragStates[elementId]) {
-                            this.state.knobDragStates[elementId].currentValue = clampedValue;
-                        }
-                        
-                        this._updateKnobDisplay(elementId, spec, clampedValue);
-                        setCount++;
-                    }
-                });
-            }
-            
-            this.saveCurrentState();
-        }
-
-        async _loadFolderSamples() {
-            this.ui.loadPathButton.disabled = true;
-            this.ui.loadPathButton.textContent = 'Loading...';
-            this.ui.loadingStatus.textContent = 'Loading';
-            this.ui.loadingStatus.classList.add('loading-dots');
-
-            try {
-                if (!window.showDirectoryPicker) {
-                    alert("File System Access API not supported");
-                    return;
-                }
-
-                const dirHandle = await window.showDirectoryPicker();
-                let allFileHandles = await this._getAllAudioFilesRecursive(dirHandle);
-
-                const filterString = this.domCache.getElementById('loadPathInput').value.toLowerCase().trim();
-                if (filterString) {
-                    allFileHandles = allFileHandles.filter(handle => handle.name.toLowerCase().includes(filterString));
-                }
-
-                if (allFileHandles.length === 0) {
-                    alert("No matching audio files found");
-                    return;
-                }
-                
-                for (let s = 0; s < this.config.SLOTS; s++) {
-                    this.state.audioBuffers[s] = null;
-                    this.state.waveformRenderers[s].invalidateCache();
-                    this.state.waveformRenderers[s].ctx.clearRect(0, 0, this.config.WAVEFORM_CANVAS_WIDTH, this.config.WAVEFORM_CANVAS_HEIGHT);
-                    this.domCache.getElementById(`fileName-slot${s}`).textContent = '';
-                }
-
-                for (let i = allFileHandles.length - 1; i > 0; i--) {
-                    const j = Math.floor(Math.random() * (i + 1));
-                    [allFileHandles[i], allFileHandles[j]] = [allFileHandles[j], allFileHandles[i]];
-                }
-
-                const loadPromises = allFileHandles.slice(0, this.config.SLOTS).map((fileHandle, index) =>
-                    this._processAndLoadFile(fileHandle, index)
-                );
-                
-                await Promise.all(loadPromises);
-                
-                const loadedCount = this.state.audioBuffers.filter(b => b).length;
-                this.ui.loadingStatus.textContent = `${loadedCount}/${this.config.SLOTS} loaded`;
-                this.saveCurrentState();
-
-            } catch (err) {
-                Logger.error("❌ Folder load error:", err);
-                this.ui.loadingStatus.textContent = 'Error!';
-
-                // Show user-friendly error message
-                let errorMessage = 'フォルダーからのファイル読み込みに失敗しました。';
-                if (err.name === 'AbortError') {
-                    errorMessage = 'ファイル選択がキャンセルされました。';
-                } else if (err.name === 'NotAllowedError') {
-                    errorMessage = 'フォルダーへのアクセス権限がありません。';
-                } else if (err.message) {
-                    errorMessage += `\n\n詳細: ${err.message}`;
-                }
-
-                this._showErrorNotification('フォルダー読み込みエラー', errorMessage);
-            } finally {
-                this.ui.loadPathButton.disabled = false;
-                this.ui.loadPathButton.textContent = 'Load';
-                this.ui.loadingStatus.classList.remove('loading-dots');
-            }
-        }
-
-        async _getAllAudioFilesRecursive(dirHandle, files = []) {
-            for await (const entry of dirHandle.values()) {
-                if (entry.kind === 'file' && (entry.name.toLowerCase().endsWith('.wav') || entry.name.toLowerCase().endsWith('.mp3'))) {
-                    files.push(entry);
-                } else if (entry.kind === 'directory') {
-                    await this._getAllAudioFilesRecursive(entry, files);
-                }
-            }
-            return files;
-        }
-
-        async _processAndLoadFile(fileHandle, slotIndex) {
-            try {
-                const file = await fileHandle.getFile();
-                if (!file) {
-                    throw new Error('Failed to get file');
-                }
-
-                // Load file with validation and error handling
-                let decodedData = await loadAudioFile(file, this.audioContext);
-
-                // Trim silence
-                const trimmedBuffer = trimSilence(decodedData, this.audioContext, 0.01);
-
-                // Normalize audio
-                const data = trimmedBuffer.getChannelData(0);
-                const max = data.reduce((max, val) => Math.max(max, Math.abs(val)), 0);
-                if (max > 0) {
-                    for (let i = 0; i < data.length; i++) {
-                        data[i] /= max;
-                    }
-                }
-
-                // Store buffer and update UI
-                this.state.audioBuffers[slotIndex] = trimmedBuffer;
-                this.state.waveformRenderers[slotIndex].drawWaveform(trimmedBuffer);
-                this.domCache.getElementById(`fileName-slot${slotIndex}`).textContent = file.name;
-
-                Logger.log(`✅ Slot ${slotIndex}: ${file.name} processed successfully`);
-            } catch (error) {
-                Logger.error(`❌ Error processing ${fileHandle.name}:`, error);
-
-                // Cleanup on error
-                if (this.state.audioBuffers[slotIndex]) {
-                    this.state.audioBuffers[slotIndex] = null;
-                }
-
-                const fileNameElement = this.domCache.getElementById(`fileName-slot${slotIndex}`);
-                if (fileNameElement) {
-                    fileNameElement.textContent = 'Error!';
-                }
-            }
-        }
-
         _getControlState() {
             const collapsedStates = {};
             
@@ -2478,7 +1357,7 @@ export class OptimizedMultigrainPlayer {
                     const slotState = {};
                     this.config.PER_SLOT_CONTROL_SPECS.forEach(spec => {
                         const elementId = `${spec.id}-slot${s}`;
-                        slotState[spec.id] = this._getKnobValue(elementId);
+                        slotState[spec.id] = this.parameterController.getKnobValue(elementId);
                     });
                     return slotState;
                 }),
@@ -2486,7 +1365,7 @@ export class OptimizedMultigrainPlayer {
                 slotSoloStatus: deepClone(this.state.slotSoloStatus),
                 slotMuteStatus: deepClone(this.state.slotMuteStatus),
                 tempoBpm: this.state.tempoBpm,
-                randomDensity: this._getKnobValue('randomDensity'),
+                randomDensity: this.parameterController.getKnobValue('randomDensity'),
                 knobLockStates: deepClone(this.state.knobLockStates),
                 collapsedStates: collapsedStates
             };
