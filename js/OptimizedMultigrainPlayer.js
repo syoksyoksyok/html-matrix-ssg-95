@@ -8,7 +8,7 @@ import { OptimizedWaveformRenderer } from './ui/OptimizedWaveformRenderer.js';
 import { UIBuilder } from './ui/UIBuilder.js';
 import { deepClone } from './utils/cloneUtils.js';
 import { loadAudioFile, validateAudioFile, trimSilence } from './utils/audioFileUtils.js';
-import { generateRandomValue } from './utils/mathUtils.js';
+import { generateRandomValue, throttle } from './utils/mathUtils.js';
 import { calculateNormalizedSensitivity } from './utils/knobUtils.js';
 import { DOMCache } from './utils/DOMCache.js';
 import { StateManager } from './utils/StateManager.js';
@@ -71,6 +71,7 @@ const CONSTANTS = {
     VIEWPORT_MIN_HEIGHT_MARGIN: 60,
     MIN_SECTION_SCALE: 0.5,
     MAX_SECTION_SCALE: 1.0,
+    MAX_SECTION_SIZE_RATIO: 0.9, // Max section size as ratio of viewport
     
     // Audio Constants
     MAX_VOICE_COUNT: 128,
@@ -493,15 +494,15 @@ export class OptimizedMultigrainPlayer {
 
         _autoArrangePanels() {
             if (!this.state.isFreeLayoutMode) return;
-            
+
             const sections = this.domCache.querySelectorAll('.panel-group.draggable', true);
             if (sections.length === 0) return;
-            
+
             // ビューポートサイズを取得
             const viewportWidth = window.innerWidth;
             const viewportHeight = window.innerHeight;
-            const margin = 20;
-            const headerHeight = 120;
+            const margin = CONSTANTS.LAYOUT_MARGIN;
+            const headerHeight = CONSTANTS.LAYOUT_HEADER_HEIGHT;
             
             // 各パネルの現在のサイズと位置を取得
             const panels = Array.from(sections).map(section => {
@@ -592,8 +593,8 @@ export class OptimizedMultigrainPlayer {
         }
 
         _findNearestNonOverlappingPosition(targetX, targetY, width, height, occupiedAreas, viewportWidth, viewportHeight, margin, headerHeight) {
-            const searchRadius = 80; // 探索半径を拡大
-            const step = 15; // 探索ステップを細かく
+            const searchRadius = CONSTANTS.LAYOUT_SEARCH_RADIUS;
+            const step = CONSTANTS.LAYOUT_SEARCH_STEP;
             
             // 最大有効範囲
             const maxX = viewportWidth - width - margin;
@@ -633,12 +634,12 @@ export class OptimizedMultigrainPlayer {
             }
             
             // 最後の手段：右下方向にずらして強制配置
-            let fallbackX = Math.min(maxX, clampedX + 50);
-            let fallbackY = Math.min(maxY, clampedY + 50);
-            
+            let fallbackX = Math.min(maxX, clampedX + CONSTANTS.LAYOUT_FALLBACK_OFFSET);
+            let fallbackY = Math.min(maxY, clampedY + CONSTANTS.LAYOUT_FALLBACK_OFFSET);
+
             // それでも重複する場合は下にずらす
             while (fallbackY <= maxY && this._hasOverlap(fallbackX, fallbackY, width, height, occupiedAreas)) {
-                fallbackY += 30;
+                fallbackY += CONSTANTS.LAYOUT_SEARCH_STEP * 2;
             }
             
             return { x: fallbackX, y: Math.min(maxY, fallbackY) };
@@ -659,7 +660,7 @@ export class OptimizedMultigrainPlayer {
         }
 
         _hasOverlap(x, y, width, height, occupiedAreas) {
-            const buffer = 15; // 重複判定のバッファを増加
+            const buffer = CONSTANTS.LAYOUT_OVERLAP_BUFFER;
             
             return occupiedAreas.some(area => {
                 // より厳密な重複判定
@@ -793,19 +794,20 @@ export class OptimizedMultigrainPlayer {
             };
             
             this._adjustSectionsToViewport();
-            
-            this._resizeListener = () => {
+
+            // Throttle resize events to improve performance (max once per 150ms)
+            this._resizeListener = throttle(() => {
                 if (this.state.isFreeLayoutMode && this.state.autoScalingActive) {
                     this._adjustSectionsToViewport();
-                    
+
                     if (this.spectrumAnalyzer) {
                         this.resourceManager.setTimeout(() => {
                             this.spectrumAnalyzer.setupCanvas();
                         }, 100);
                     }
                 }
-            };
-            
+            }, 150);
+
             this.resourceManager.addEventListener(window, 'resize', this._resizeListener);
             Logger.log('🔄 Auto-scaling started for FREE LAYOUT mode');
         }
@@ -839,44 +841,44 @@ export class OptimizedMultigrainPlayer {
                 const rect = section.getBoundingClientRect();
                 const currentLeft = parseInt(section.style.left) || 0;
                 const currentTop = parseInt(section.style.top) || 0;
-                const currentWidth = parseInt(section.style.width) || 300;
-                const currentHeight = parseInt(section.style.height) || 200;
+                const currentWidth = parseInt(section.style.width) || CONSTANTS.LAYOUT_DEFAULT_WIDTH;
+                const currentHeight = parseInt(section.style.height) || CONSTANTS.LAYOUT_MIN_PANEL_HEIGHT;
                 
                 let newLeft = currentLeft;
                 let newTop = currentTop;
                 let newWidth = currentWidth;
                 let newHeight = currentHeight;
                 let scale = 1;
-                
-                if (currentLeft + currentWidth > viewportWidth - 40) {
-                    const maxWidth = viewportWidth - currentLeft - 40;
-                    if (maxWidth > 200) {
+
+                if (currentLeft + currentWidth > viewportWidth - CONSTANTS.VIEWPORT_EDGE_MARGIN) {
+                    const maxWidth = viewportWidth - currentLeft - CONSTANTS.VIEWPORT_EDGE_MARGIN;
+                    if (maxWidth > CONSTANTS.LAYOUT_MIN_PANEL_WIDTH) {
                         newWidth = maxWidth;
                     } else {
-                        newLeft = Math.max(20, viewportWidth - currentWidth - 40);
-                        if (newLeft < 20) {
-                            newLeft = 20;
-                            newWidth = viewportWidth - 60;
+                        newLeft = Math.max(CONSTANTS.VIEWPORT_MIN_MARGIN, viewportWidth - currentWidth - CONSTANTS.VIEWPORT_EDGE_MARGIN);
+                        if (newLeft < CONSTANTS.VIEWPORT_MIN_MARGIN) {
+                            newLeft = CONSTANTS.VIEWPORT_MIN_MARGIN;
+                            newWidth = viewportWidth - CONSTANTS.VIEWPORT_MIN_HEIGHT_MARGIN;
                         }
                     }
                 }
-                
-                if (currentTop + currentHeight > viewportHeight - 40) {
-                    const maxHeight = viewportHeight - currentTop - 40;
-                    if (maxHeight > 150) {
+
+                if (currentTop + currentHeight > viewportHeight - CONSTANTS.VIEWPORT_EDGE_MARGIN) {
+                    const maxHeight = viewportHeight - currentTop - CONSTANTS.VIEWPORT_EDGE_MARGIN;
+                    if (maxHeight > CONSTANTS.LAYOUT_MIN_PANEL_HEIGHT) {
                         newHeight = maxHeight;
                     } else {
-                        newTop = Math.max(20, viewportHeight - currentHeight - 40);
-                        if (newTop < 20) {
-                            newTop = 20;
-                            newHeight = viewportHeight - 60;
+                        newTop = Math.max(CONSTANTS.VIEWPORT_MIN_MARGIN, viewportHeight - currentHeight - CONSTANTS.VIEWPORT_EDGE_MARGIN);
+                        if (newTop < CONSTANTS.VIEWPORT_MIN_MARGIN) {
+                            newTop = CONSTANTS.VIEWPORT_MIN_MARGIN;
+                            newHeight = viewportHeight - CONSTANTS.VIEWPORT_MIN_HEIGHT_MARGIN;
                         }
                     }
                 }
-                
-                const minScale = 0.5;
-                const maxSectionWidth = viewportWidth * 0.9;
-                const maxSectionHeight = viewportHeight * 0.9;
+
+                const minScale = CONSTANTS.MIN_SECTION_SCALE;
+                const maxSectionWidth = viewportWidth * CONSTANTS.MAX_SECTION_SIZE_RATIO;
+                const maxSectionHeight = viewportHeight * CONSTANTS.MAX_SECTION_SIZE_RATIO;
                 
                 if (newWidth > maxSectionWidth) {
                     scale = Math.min(scale, maxSectionWidth / newWidth);
